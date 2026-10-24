@@ -268,3 +268,12 @@ create table commercial_dates (
   name text not null, date_start date not null, date_end date,
   country text default 'AR', categories text[], source_url text not null
 );
+
+-- Storage buckets
+insert into storage.buckets (id, name, public) values
+  ('brand-files','brand-files',false),
+  ('media-public','media-public',true),
+  ('voice-messages','voice-messages',false),
+  ('tts-cache','tts-cache',false),
+  ('generated-assets','generated-assets',true)
+on conflict (id) do nothing;
