@@ -21,7 +21,9 @@ export const GOOGLE_KEY = findKey(['GOOGLE_GENERATIVE_AI_API_KEY', 'GEMINI_API_K
 const google = createGoogleGenerativeAI({ apiKey: GOOGLE_KEY?.value })
 const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY?.trim()
 
-export const AI_PROVIDER: 'anthropic' | 'google' | 'gateway' = ANTHROPIC_KEY ? 'anthropic' : GOOGLE_KEY ? 'google' : 'gateway'
+const FORCED = process.env.AI_PROVIDER?.trim().toLowerCase()
+export const AI_PROVIDER: 'anthropic' | 'google' | 'gateway' =
+  FORCED === 'gateway' ? 'gateway' : ANTHROPIC_KEY ? 'anthropic' : GOOGLE_KEY ? 'google' : 'gateway'
 
 const CLAUDE_MAIN = process.env.CLAUDE_MODEL_MAIN || 'claude-sonnet-5-5'
 const CLAUDE_FAST = process.env.CLAUDE_MODEL_FAST || 'claude-haiku-5-5'
@@ -33,14 +35,14 @@ export const MODEL_MAIN =
     ? anthropic(CLAUDE_MAIN)
     : AI_PROVIDER === 'google'
       ? google(GEMINI_MAIN)
-      : `anthropic/${CLAUDE_MAIN.replace(/-(\d+)-(\d+)$/, '-$1.$2')}`
+      : process.env.GATEWAY_MODEL_MAIN || `anthropic/${CLAUDE_MAIN.replace(/-(\d+)-(\d+)$/, '-$1.$2')}`
 
 export const MODEL_FAST =
   AI_PROVIDER === 'anthropic'
     ? anthropic(CLAUDE_FAST)
     : AI_PROVIDER === 'google'
       ? google(GEMINI_FAST)
-      : `anthropic/${CLAUDE_FAST.replace(/-(\d+)-(\d+)$/, '-$1.$2')}`
+      : process.env.GATEWAY_MODEL_FAST || `anthropic/${CLAUDE_FAST.replace(/-(\d+)-(\d+)$/, '-$1.$2')}`
 
 /** Modelo + herramienta de búsqueda web para el canal "Respuestas de IA" de Visibilidad. */
 export function searchModel(): { model: any; tools?: Record<string, any> } {
