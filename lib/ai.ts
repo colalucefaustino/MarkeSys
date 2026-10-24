@@ -21,9 +21,7 @@ export const GOOGLE_KEY = findKey(['GOOGLE_GENERATIVE_AI_API_KEY', 'GEMINI_API_K
 const google = createGoogleGenerativeAI({ apiKey: GOOGLE_KEY?.value })
 const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY?.trim()
 
-const FORCED = process.env.AI_PROVIDER?.trim().toLowerCase()
-export const AI_PROVIDER: 'anthropic' | 'google' | 'gateway' =
-  FORCED === 'gateway' ? 'gateway' : ANTHROPIC_KEY ? 'anthropic' : GOOGLE_KEY ? 'google' : 'gateway'
+export const AI_PROVIDER: 'anthropic' | 'google' | 'gateway' = ANTHROPIC_KEY ? 'anthropic' : GOOGLE_KEY ? 'google' : 'gateway'
 
 const CLAUDE_MAIN = process.env.CLAUDE_MODEL_MAIN || 'claude-sonnet-5-5'
 const CLAUDE_FAST = process.env.CLAUDE_MODEL_FAST || 'claude-haiku-5-5'
