@@ -64,6 +64,18 @@ export async function getRun(runId: string) {
 }
 
 export async function latestRun(brandId: string, agent: AgentKey) {
+  const run = await latestRunRaw(brandId, agent)
+  if (run && (run.status === 'running' || run.status === 'queued')) {
+    const since = new Date(run.started_at ?? run.created_at ?? Date.now()).getTime()
+    if (Date.now() - since > 4 * 60 * 1000) {
+      await db().from('agent_runs').update({ status: 'failed', error: 'Se cortó por tiempo. Probá de nuevo.' }).eq('id', run.id)
+      return { ...run, status: 'failed', error: 'Se cortó por tiempo. Probá de nuevo.' }
+    }
+  }
+  return run
+}
+
+async function latestRunRaw(brandId: string, agent: AgentKey) {
   const { data } = await db()
     .from('agent_runs')
     .select('*')

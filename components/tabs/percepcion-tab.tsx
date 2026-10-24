@@ -17,8 +17,21 @@ export function PercepcionTab() {
   const sec = data.percepcion
   const p = sec?.data as any
   const running = a3 && (a3.status === 'queued' || a3.status === 'running')
+  const skipped = data.state.tabs.estrategia && !data.state.tabs.estrategia.locked
+  const skipBtn = (
+    <Button variant="ghost" onClick={() => approve('CP3', undefined, 'salteado', 'Salteaste Percepción. Seguí en Nicho y posicionamiento.')} disabled={busy === 'CP3'}>
+      {busy === 'CP3' && <Loader2 className="animate-spin" />} Saltear este paso
+    </Button>
+  )
 
-  if (running) return <div className="flex h-full items-center justify-center p-6"><RunProgress run={a3} title="Analizando lo que dicen tus clientes" /></div>
+  if (running)
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 p-6">
+        <RunProgress run={a3} title="Analizando lo que dicen tus clientes" />
+        <p className="text-sm text-muted-foreground">¿Tarda demasiado? Podés seguir sin este paso.</p>
+        {skipBtn}
+      </div>
+    )
 
   const pasteBox = (
     <div className="w-full space-y-2 text-left">
@@ -44,9 +57,7 @@ export function PercepcionTab() {
       <Empty icon={<MessageSquareQuote className="size-5" />} title="¿Qué valoran de vos tus clientes?" text="Comparamos lo que vos decís de tu marca con lo que dicen tus clientes. Pegá reseñas de Google, Instagram o WhatsApp, o subilas en Medios.">
         {pasteBox}
         {a3?.status === 'failed' && <p className="text-sm text-destructive">{a3.error}</p>}
-        <Button variant="ghost" onClick={() => approve('CP3', undefined, 'salteado', 'Salteaste Percepción')} disabled={!!busy}>
-          No tengo reseñas, saltear este paso
-        </Button>
+        {skipped ? <p className="text-sm text-success">Paso salteado. Ya podés seguir en Nicho y posicionamiento.</p> : skipBtn}
       </Empty>
     )
   }
@@ -123,6 +134,7 @@ export function PercepcionTab() {
         busy={busy === 'CP3'}
         disabled={pendientes > 0}
         onApprove={() => approve('CP3', 'percepcion', 'aprobado', 'Percepción aprobada')}
+        extra={skipBtn}
       />
     </div>
   )
