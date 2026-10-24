@@ -1,15 +1,27 @@
 import { anthropic } from '@ai-sdk/anthropic'
-import { google } from '@ai-sdk/google'
+import { createGoogleGenerativeAI } from '@ai-sdk/google'
 
 // Proveedor de IA según la clave cargada en Vercel:
 // 1) ANTHROPIC_API_KEY → Claude (lo que pide el spec)
 // 2) GOOGLE_GENERATIVE_AI_API_KEY → Gemini (capa gratuita)
 // 3) ninguna → AI Gateway de Vercel (pide tarjeta)
-export const AI_PROVIDER: 'anthropic' | 'google' | 'gateway' = process.env.ANTHROPIC_API_KEY
-  ? 'anthropic'
-  : process.env.GOOGLE_GENERATIVE_AI_API_KEY
-    ? 'google'
-    : 'gateway'
+// Acepta la clave de Gemini con cualquiera de estos nombres (y le saca espacios o comillas).
+function findKey(names: string[]) {
+  for (const n of names) {
+    const v = process.env[n]?.trim().replace(/^["']|["']$/g, '')
+    if (v) return { name: n, value: v }
+  }
+  // por si el nombre quedó con espacios o con otra variante
+  for (const [k, v] of Object.entries(process.env)) {
+    if (/GOOGLE|GEMINI/i.test(k) && /KEY/i.test(k) && v?.trim().startsWith('AIza')) return { name: k, value: v.trim() }
+  }
+  return null
+}
+export const GOOGLE_KEY = findKey(['GOOGLE_GENERATIVE_AI_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_AI_API_KEY'])
+const google = createGoogleGenerativeAI({ apiKey: GOOGLE_KEY?.value })
+const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY?.trim()
+
+export const AI_PROVIDER: 'anthropic' | 'google' | 'gateway' = ANTHROPIC_KEY ? 'anthropic' : GOOGLE_KEY ? 'google' : 'gateway'
 
 const CLAUDE_MAIN = process.env.CLAUDE_MODEL_MAIN || 'claude-sonnet-5-5'
 const CLAUDE_FAST = process.env.CLAUDE_MODEL_FAST || 'claude-haiku-5-5'
