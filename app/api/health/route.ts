@@ -1,10 +1,30 @@
 import { NextResponse } from 'next/server'
-import { AI_PROVIDER, GOOGLE_KEY } from '@/lib/ai'
+import { generateText } from 'ai'
+import { AI_PROVIDER, GOOGLE_KEY, MODEL_MAIN, MODEL_FAST } from '@/lib/ai'
+import { db } from '@/lib/supabase/server'
 
 export const dynamic = 'force-dynamic'
 
 /** Diagnóstico: qué servicios ve esta publicación (sin mostrar claves). */
-export async function GET() {
+export async function GET(req: Request) {
+  const probar = new URL(req.url).searchParams.has('probar')
+  const pruebas: Record<string, string> = {}
+  if (probar) {
+    for (const [n, m] of [['modelo_principal', MODEL_MAIN], ['modelo_rapido', MODEL_FAST]] as const) {
+      try {
+        const r = await generateText({ model: m as any, prompt: 'Respondé solo: ok' })
+        pruebas[n] = 'responde: ' + r.text.slice(0, 20)
+      } catch (e) {
+        pruebas[n] = 'ERROR: ' + (e instanceof Error ? e.message : String(e)).slice(0, 300)
+      }
+    }
+    try {
+      const { error } = await db().from('brands').select('id', { count: 'exact', head: true })
+      pruebas.base_de_datos = error ? 'ERROR: ' + error.message : 'ok'
+    } catch (e) {
+      pruebas.base_de_datos = 'ERROR: ' + (e instanceof Error ? e.message : String(e))
+    }
+  }
   const has = (k: string) => Boolean(process.env[k] && process.env[k]!.trim())
   return NextResponse.json({
     version: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? 'local',
@@ -17,5 +37,6 @@ export async function GET() {
     elevenlabs: has('ELEVENLABS_API_KEY'),
     serper: has('SERPER_API_KEY'),
     apify: has('APIFY_TOKEN'),
+    ...(probar ? { pruebas } : {}),
   })
 }
