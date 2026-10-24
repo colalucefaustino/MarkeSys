@@ -1,0 +1,318 @@
+import { generateObject } from 'ai'
+import { z } from 'zod'
+import { db } from '@/lib/supabase/server'
+import { MODEL_MAIN, MODEL_FAST, todayISO } from '@/lib/ai'
+import { getDossier, dossierSummary, writeSectionData } from '@/lib/dossier'
+import type { RunProgress } from '@/lib/agents/runs'
+
+const NO_INVENT =
+  'Regla absoluta: usá solo los datos que te paso. No inventes cifras, tamaños de mercado, beneficios ni fechas. Si falta algo, ponelo en missing_inputs.'
+
+/* ───────────── A3 · Percepción ───────────── */
+const PercepcionSchema = z.object({
+  temas: z
+    .array(
+      z.object({
+        tema: z.string(),
+        menciones: z.number(),
+        sentimiento: z.enum(['positivo', 'negativo', 'mixto']),
+        ejemplo: z.string().describe('cita textual corta de una reseña, máx 25 palabras'),
+      }),
+    )
+    .max(8),
+  brechas: z
+    .array(
+      z.object({
+        dueno_dice: z.string(),
+        clientes_valoran: z.string(),
+        comunicacion_muestra: z.string(),
+        tipo: z.enum(['coincide', 'brecha']),
+        pregunta: z.string(),
+        opciones: z.array(z.string()).min(2).max(4),
+      }),
+    )
+    .max(5),
+  missing_inputs: z.array(z.string()),
+})
+
+export async function runA3(brandId: string, runId: string, progress: RunProgress) {
+  await progress.init([
+    { id: 'reviews', label: 'Leyendo tus reseñas' },
+    { id: 'analyze', label: 'Buscando qué valoran tus clientes' },
+    { id: 'gaps', label: 'Comparando con lo que vos comunicás' },
+  ])
+  await progress.update('reviews', 'running')
+  const d = await getDossier(brandId)
+  const { data: reviews } = await db().from('reviews').select('id,text,rating').eq('brand_id', brandId).limit(200)
+  const list = reviews ?? []
+  if (!list.length) throw new Error('No hay reseñas cargadas. Pegá algunas o salteá este paso.')
+  await progress.update('reviews', 'done', `${list.length} reseñas`)
+  await progress.update('analyze', 'running')
+  const { object } = await generateObject({
+    model: MODEL_MAIN,
+    schema: PercepcionSchema,
+    prompt: `Analizá la percepción de un comercio argentino.
+${NO_INVENT}
+
+EXPEDIENTE DE LA MARCA (lo que dice el dueño y lo que comunica):
+${dossierSummary(d)}
+
+RESEÑAS DE CLIENTES (${list.length}):
+${list.map((r, i) => `${i + 1}. ${r.rating ? `[${r.rating}★] ` : ''}${String(r.text).slice(0, 400)}`).join('\n')}
+
+1) Extraé los temas que más se repiten, contando en cuántas reseñas aparece cada uno (menciones = conteo real).
+2) Compará tres columnas: lo que dice el dueño (Ficha), lo que valoran los clientes (reseñas) y lo que muestra su comunicación (web, tono, canales). Marcá "coincide" o "brecha".
+3) Para cada brecha escribí una pregunta corta para el dueño, en voseo, con 2 a 4 opciones de respuesta.`,
+  })
+  await progress.update('analyze', 'done', `${object.temas.length} temas`)
+  await progress.update('gaps', 'done', `${object.brechas.filter((b) => b.tipo === 'brecha').length} brechas`)
+  await writeSectionData(
+    brandId,
+    'percepcion',
+    { ...object, cantidad_resenas: list.length, suficiente: list.length >= 5, respuestas: {}, fecha: todayISO() },
+    { status: 'pending_approval', agentRunId: runId },
+  )
+  await progress.finish({ temas: object.temas.length })
+}
+
+/* ───────────── A4 · Estratega ───────────── */
+const NichosSchema = z.object({
+  modo: z.enum(['descubrir', 'validar', 'profundizar']),
+  nichos: z
+    .array(
+      z.object({
+        nombre: z.string(),
+        descripcion: z.string(),
+        persona: z.string(),
+        product_names: z.array(z.string()).describe('nombres exactos de productos del catálogo que encajan'),
+        competencia: z.enum(['alta', 'media', 'baja']),
+        evidencia: z.array(z.object({ dato: z.string(), fuente: z.string() })).min(1).max(4),
+        riesgos: z.array(z.string()).max(3),
+        recomendado: z.boolean(),
+      }),
+    )
+    .min(2)
+    .max(3),
+  investigacion: z
+    .object({
+      sub_segmentos: z.array(z.object({ nombre: z.string(), descripcion: z.string(), fuente: z.string() })).max(4),
+      motivaciones: z.array(z.string()).max(5),
+      objeciones: z.array(z.string()).max(5),
+      preguntas_frecuentes: z.array(z.object({ pregunta: z.string(), fuente: z.string() })).max(5),
+    })
+    .optional(),
+  missing_inputs: z.array(z.string()),
+})
+
+const PosSchema = z.object({
+  propuesta_valor: z.string(),
+  mensajes_clave: z.array(z.string()).length(3),
+  tono: z.object({ descripcion: z.string(), frases_si: z.array(z.string()).max(4), frases_no: z.array(z.string()).max(4) }),
+  persona_principal: z.object({
+    nombre: z.string(),
+    descripcion: z.string(),
+    preocupaciones: z.array(z.string()).max(4),
+    canales: z.array(z.string()).max(4),
+  }),
+})
+
+async function context(brandId: string) {
+  const d = await getDossier(brandId)
+  const vis = d.sections.visibilidad?.data ?? {}
+  const per = d.sections.percepcion?.data ?? {}
+  const { data: comps } = await db().from('competitors').select('name,detected_in').eq('brand_id', brandId)
+  return {
+    d,
+    text: `${dossierSummary(d)}
+
+DIAGNÓSTICO DE VISIBILIDAD: puntaje ${vis.puntaje_global ?? 'sin medir'}/100.
+Competidores que aparecen: ${(vis.ranking_competidores ?? []).map((c: any) => `${c.nombre} (${c.apariciones})`).join(', ') || (comps ?? []).map((c) => c.name).join(', ') || 'sin datos'}
+Acciones sugeridas: ${(vis.acciones ?? []).map((a: any) => a.accion).join(' | ') || 'sin datos'}
+
+PERCEPCIÓN: ${(per.temas ?? []).map((t: any) => `${t.tema} (${t.menciones}, ${t.sentimiento})`).join(', ') || 'sin reseñas'}
+Respuestas del dueño a las brechas: ${JSON.stringify(per.respuestas ?? {})}`,
+  }
+}
+
+export async function runA4(brandId: string, runId: string, progress: RunProgress, params: Record<string, string>) {
+  const phase = params.phase === 'posicionamiento' ? 'posicionamiento' : 'nichos'
+  const { d, text } = await context(brandId)
+  const prev = d.sections.estrategia?.data ?? {}
+
+  if (phase === 'nichos') {
+    await progress.init([
+      { id: 'ctx', label: 'Juntando tu diagnóstico' },
+      { id: 'niches', label: 'Evaluando nichos posibles' },
+    ])
+    await progress.update('ctx', 'done')
+    await progress.update('niches', 'running')
+    const seg = d.brand?.size_segment ?? 'pyme'
+    const modo = params.modo || (seg === 'micro' ? 'descubrir' : seg === 'grande' ? 'profundizar' : 'validar')
+    const { object } = await generateObject({
+      model: MODEL_MAIN,
+      schema: NichosSchema,
+      prompt: `Sos estratega de marketing para comercios argentinos. Tamaño de la empresa: ${seg}. Modo: ${modo}.
+- descubrir: proponé 3 nichos posibles y recomendá 1.
+- validar: evaluá el nicho actual frente a 2 alternativas y recomendá mantener, ajustar o cambiar.
+- profundizar: el primer nicho es el actual; completá "investigacion" con sub-segmentos, motivaciones, objeciones y preguntas frecuentes, cada una con su fuente.
+Marcá exactamente un nicho como recomendado. Cada evidencia cita su fuente (Visibilidad, Percepción, Catálogo o Ficha).
+${NO_INVENT}
+
+DATOS:
+${text}`,
+    })
+    const names = d.products.filter((p) => !p.excluded).map((p) => String(p.name).toLowerCase())
+    const nichos = object.nichos.map((n) => {
+      const hits = n.product_names.filter((x) => names.includes(x.toLowerCase())).length
+      return { ...n, porcentaje_catalogo: names.length ? Math.round((hits / names.length) * 100) : null }
+    })
+    await progress.update('niches', 'done', `${nichos.length} opciones`)
+    await writeSectionData(
+      brandId,
+      'estrategia',
+      { ...prev, modo: object.modo, nichos, investigacion: object.investigacion ?? null, missing_inputs: object.missing_inputs, nicho_elegido: null, posicionamiento: null },
+      { status: 'draft', agentRunId: runId },
+    )
+    await progress.finish({})
+    return
+  }
+
+  await progress.init([{ id: 'pos', label: 'Escribiendo tu propuesta de valor y mensajes' }])
+  await progress.update('pos', 'running')
+  const nicho = (prev.nichos ?? []).find((n: any) => n.nombre === params.nicho) ?? { nombre: params.nicho }
+  const { object } = await generateObject({
+    model: MODEL_MAIN,
+    schema: PosSchema,
+    prompt: `Definí el posicionamiento de esta marca para el nicho elegido: ${JSON.stringify(nicho)}.
+Propuesta de valor en una frase, 3 mensajes clave, tono con frases sí y no (respetando trato y tono de la Ficha y sus restricciones) y la persona principal.
+No prometas beneficios que no figuren en la Ficha. ${NO_INVENT}
+
+DATOS:
+${text}`,
+  })
+  await progress.update('pos', 'done')
+  await writeSectionData(
+    brandId,
+    'estrategia',
+    { ...prev, nicho_elegido: nicho.nombre, posicionamiento: object },
+    { status: 'pending_approval', agentRunId: runId },
+  )
+  await progress.finish({})
+}
+
+/* ───────────── A5 · Calendario ───────────── */
+const PlanSchema = z.object({
+  campanas: z
+    .array(
+      z.object({
+        nombre: z.string(),
+        objetivo: z.string(),
+        mensaje_clave: z.string(),
+        inicio: z.string(),
+        fin: z.string(),
+        kpi: z.string(),
+      }),
+    )
+    .min(1)
+    .max(4),
+  items: z
+    .array(
+      z.object({
+        campana: z.number().describe('índice de la campaña, -1 para acciones de visibilidad'),
+        fecha: z.string().describe('AAAA-MM-DD'),
+        canal: z.string(),
+        formato: z.enum(['post', 'carrusel', 'historia', 'reel', 'whatsapp', 'email', 'accion_seo', 'accion_geo', 'accion_local']),
+        idea: z.string(),
+        copy: z.string(),
+        porque: z.string(),
+        muestra_precio: z.boolean(),
+        promo_propuesta: z.boolean(),
+      }),
+    )
+    .max(70),
+  missing_inputs: z.array(z.string()),
+})
+
+function nextMonday(iso: string) {
+  const dt = new Date(iso + 'T12:00:00')
+  const add = (8 - dt.getDay()) % 7 || 7
+  dt.setDate(dt.getDate() + add)
+  return dt.toISOString().slice(0, 10)
+}
+
+export async function runA5(brandId: string, runId: string, progress: RunProgress) {
+  await progress.init([
+    { id: 'ctx', label: 'Leyendo objetivos, stock y estrategia' },
+    { id: 'plan', label: 'Armando campañas y calendario' },
+  ])
+  const { d, text } = await context(brandId)
+  const objectives = d.objectives.filter((o) => o.deadline)
+  if (!objectives.length) throw new Error('Faltan objetivos con fecha. Pedíselos al Copiloto.')
+  const ficha = d.sections.ficha?.data ?? {}
+  const estr = d.sections.estrategia?.data ?? {}
+  const start = nextMonday(todayISO())
+  const end = objectives.map((o) => String(o.deadline)).sort().pop()!
+  const weeks = Math.max(1, Math.ceil((new Date(end).getTime() - new Date(start).getTime()) / (7 * 864e5)))
+  const gran = weeks <= 6 ? 'día' : weeks <= 17 ? 'semana' : 'mes'
+  const cap = Number(ficha?.capacidad?.piezas_por_semana) || 3
+  const { data: dates } = await db().from('commercial_dates').select('name,date_start').gte('date_start', start).lte('date_start', end)
+  await progress.update('ctx', 'done', `${weeks} semanas, ${cap} piezas por semana`)
+  await progress.update('plan', 'running')
+
+  const { object } = await generateObject({
+    model: MODEL_MAIN,
+    schema: PlanSchema,
+    prompt: `Armá el calendario de marketing de este comercio.
+HORIZONTE: del ${start} al ${end} (${weeks} semanas, granularidad ${gran}). Máximo ${cap} piezas por semana (las acciones de visibilidad no cuentan). Si el horizonte es largo, detallá bien el primer mes y después 1 o 2 piezas clave por semana.
+OBJETIVOS: ${objectives.map((o) => `${o.description} (hasta ${o.deadline})`).join(' | ')}
+ESTRATEGIA: nicho ${estr.nicho_elegido ?? 'sin definir'}; ${JSON.stringify(estr.posicionamiento ?? {})}
+FECHAS COMERCIALES (usá solo estas): ${(dates ?? []).map((x) => `${x.name} ${x.date_start}`).join(', ') || 'ninguna cargada: no menciones fechas comerciales'}
+REGLAS:
+- Al menos una campaña por objetivo. Cada pieza lleva "porque" con el dato que la justifica.
+- Incluí en las primeras semanas las acciones de visibilidad del diagnóstico (formato accion_geo, accion_seo o accion_local, campana -1).
+- Precios: respetá la preferencia de la Ficha ("precios_en_publicaciones").
+- No inventes descuentos: si proponés uno, promo_propuesta true.
+- Productos excluidos nunca; productos con poco stock no se empujan.
+${NO_INVENT}
+
+DATOS:
+${text}`,
+  })
+  const items = object.items
+    .filter((x) => x.fecha >= start && x.fecha <= end)
+    .sort((a, b) => a.fecha.localeCompare(b.fecha))
+    .map((x, i) => ({ ...x, id: `i${i}`, status: 'propuesta' as const }))
+  await progress.update('plan', 'done', `${object.campanas.length} campañas, ${items.length} ítems`)
+  await writeSectionData(
+    brandId,
+    'calendario',
+    { horizonte: { inicio: start, fin: end, semanas: weeks, granularidad: gran, piezas_por_semana: cap }, campanas: object.campanas, items, missing_inputs: object.missing_inputs },
+    { status: 'pending_approval', agentRunId: runId },
+  )
+  await progress.finish({ items: items.length })
+}
+
+/* ───────────── A6 · Guion (sincrónico) ───────────── */
+export async function writeScript(brandId: string, item: any) {
+  const d = await getDossier(brandId)
+  const estr = d.sections.estrategia?.data ?? {}
+  const { object } = await generateObject({
+    model: MODEL_FAST,
+    schema: z.object({
+      gancho: z.string(),
+      escenas: z.array(z.object({ tiempo: z.string(), que_grabar: z.string(), texto_en_pantalla: z.string(), voz: z.string() })).max(8),
+      cta: z.string(),
+      duracion_seg: z.number(),
+      copy_publicacion: z.string(),
+      consejos: z.array(z.string()).max(4),
+    }),
+    prompt: `Escribí el guion de una pieza para redes de este comercio, pensada para grabar con el celular.
+Pieza: ${item.formato} en ${item.canal}. Idea: ${item.idea}. Texto base: ${item.copy}. Por qué: ${item.porque}. ${item.muestra_precio ? 'Puede mostrar precio.' : 'No mostrar precio.'}
+Posicionamiento: ${JSON.stringify(estr.posicionamiento ?? {})}
+${NO_INVENT}
+
+MARCA:
+${dossierSummary(d)}`,
+  })
+  return object
+}
