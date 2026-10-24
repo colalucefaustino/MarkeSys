@@ -101,7 +101,8 @@ export async function getBrandState(brandId: string): Promise<BrandState | null>
   const cp3Skipped = (approvals ?? []).some((a) => a.checkpoint === 'CP3' && a.decision === 'salteado')
 
   const fichaOk = !!approvedEver.ficha
-  const diagOk = !!approvedEver.visibilidad && (!!approvedEver.percepcion || cp3Skipped)
+  // Percepción es opcional: alcanza con Visibilidad aprobada
+  const diagOk = !!approvedEver.visibilidad || (!!approvedEver.percepcion || cp3Skipped) && !!latest.visibilidad
   const stratOk = !!approvedEver.estrategia
   const planOk = !!approvedEver.calendario
 
@@ -119,9 +120,7 @@ export async function getBrandState(brandId: string): Promise<BrandState | null>
       ? { locked: false, status: latest.estrategia ? sec('estrategia') : 'en_curso' }
       : {
           locked: true,
-          reason: !approvedEver.visibilidad
-            ? 'Falta aprobar el diagnóstico de Visibilidad digital.'
-            : 'Falta aprobar Percepción (o saltearla si no tenés reseñas).',
+          reason: 'Falta aprobar el diagnóstico de Visibilidad digital (al final de esa pestaña).',
         },
     calendario: stratOk
       ? { locked: false, status: latest.calendario ? sec('calendario') : 'en_curso' }
