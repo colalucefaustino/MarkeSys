@@ -1,147 +1,38 @@
-# Vitrina — Documento de traspaso (handoff)
+# MarkeSys — Documento de traspaso
 
-Director de marketing con IA para retail argentino. Este documento resume todo lo que existe, cómo está diseñado, cómo se conecta y qué falta, para continuar en otro chat sin perder contexto.
+Director de marketing con IA para retail argentino (antes se llamaba "Vitrina"). Este documento resume el estado real del código, las decisiones tomadas y lo pendiente. `docs/SPEC.md` es el spec funcional completo; si algo difiere, manda este archivo.
 
-Documentos que viajan con el proyecto:
-- `docs/SPEC_ORIGINAL.md`: el spec original (fuente de verdad de producto, agentes, prompts, esquemas y fases).
-- `docs/HANDOFF.md`: este archivo (estado real de la implementación).
-
-Idioma de la app y del equipo: español rioplatense (voseo). Contexto: Argentina, pesos argentinos, búsquedas con `gl=ar`.
+Última actualización: 28/10/2026, después de la hackathon Shippear (24/10/2026).
 
 ---
 
-## 1. Decisiones tomadas con el cliente
+## 1. Decisiones tomadas
 
 | Tema | Decisión |
 |---|---|
-| Base de datos y archivos | Supabase (Postgres + Storage con 5 buckets), tal como pide el spec |
-| LLM | Originalmente Vercel AI Gateway, pero pide tarjeta de crédito. **Cambiado a Google Gemini** (capa gratuita en Google AI Studio, sin tarjeta) con `@ai-sdk/google`. El AI Gateway queda como fallback si falta la clave |
-| Login | **Eliminado por completo.** La app abre directo en el producto |
-| Marca | Negocio real. No hay marca demo ni seed. El usuario carga todo desde la app (desde el Copiloto) |
-| Fechas comerciales | Se buscan con fuente real (tabla `commercial_dates` exige `source_url`). El planificador no inventa fechas |
+| Nombre y marca | **MarkeSys**. Paleta crema/naranja/tinta, tipografía Outfit, logo `public/markesys-mark.png` |
+| Propuesta de valor | Estrategia (visibilidad, percepción, nicho, plan). El contenido es una herramienta integrada, no el foco |
+| LLM | `lib/ai.ts`: Claude si hay `ANTHROPIC_API_KEY`; Gemini si hay `GOOGLE_GENERATIVE_AI_API_KEY` (**lo que se usa hoy**, capa gratuita); `AI_PROVIDER=gateway` fuerza el AI Gateway de Vercel. Modelos configurables: `GEMINI_MODEL_MAIN/FAST`, `CLAUDE_MODEL_MAIN/FAST`, `GATEWAY_MODEL_MAIN/FAST` |
+| Login | Eliminado. La app abre directo en el producto |
+| Base y archivos | Supabase (Postgres + Storage), solo desde el servidor con service role. Acepta `SUPABASE_SERVICE_ROLE_KEY` o `SUPABASE_SECRET_KEY` |
+| Percepción | **Opcional**: Nicho y posicionamiento se desbloquea con Visibilidad aprobada. Se puede saltear siempre |
+| Agentes colgados | Si un agente queda en `running` más de 4 minutos, se marca como fallido y se puede reintentar |
+| Ads | Simulado en el cliente (sin Meta Marketing API) |
 | País | Argentina (voseo, `gl=ar`, pesos) |
-| Estilo visual | Limpio y moderno, claro |
-| Alcance de la primera entrega | Fases 1 a 5 del §16 del spec |
-| Servicios externos con clave | Apify (Instagram/TikTok), ElevenLabs (voz), Serper (Google web y Maps), Gemini (LLM) |
-| Voz | Funciona con el navegador aunque no haya ElevenLabs; con ElevenLabs suena mejor |
 
----
+## 2. Despliegue
 
-## 2. Stack técnico
-
-- Next.js 16 (App Router, Turbopack), React 19.2, TypeScript
-- Tailwind CSS v4 + shadcn/ui (componentes en `components/ui/`)
-- Iconos: `lucide-react`. Fuente: Inter (`--font-inter`)
-- Toasts: `sonner` (`<Toaster position="top-center" />`)
-- Supabase: `@supabase/supabase-js` y `@supabase/ssr`
-  - Servidor: `db()` en `lib/supabase/server.ts` (service role, bypass de RLS)
-  - Navegador: `createClient()` en `lib/supabase/client.ts` (solo para subir archivos con URL firmada)
-- IA: AI SDK (`ai`) + `@ai-sdk/google`. Modelos en `lib/ai.ts`
-- Voz: ElevenLabs (TTS y transcripción) con fallback a Web Speech del navegador
-- Búsquedas externas: Serper, Apify
-- Agentes en segundo plano: `after()` de `next/server` (`maxDuration = 300`)
-
-### Variables de entorno (ya cargadas en el proyecto)
-
-| Variable | Uso |
-|---|---|
-| `GOOGLE_GENERATIVE_AI_API_KEY` | LLM (Gemini). Si falta, cae al AI Gateway |
-| `GEMINI_MODEL_MAIN` / `GEMINI_MODEL_FAST` | Opcionales. Default `gemini-3.5-flash` y `gemini-3.5-flash-lite` |
-| `CLAUDE_MODEL_MAIN` / `CLAUDE_MODEL_FAST` | Opcionales, solo para el fallback al Gateway |
-| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase |
-| `SERPER_API_KEY` | Google web y Maps |
-| `APIFY_TOKEN` | Instagram y TikTok |
-| `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID` | Voz |
-| `DEMO_USER_EMAIL`, `DEMO_USER_PASSWORD`, `AUTH_SECRET` | **Ya no se usan** (del login eliminado). Se pueden borrar |
-
----
+- Repo: `colalucefaustino/markesys`, rama `main`. Vercel publica cada push.
+- Variables en Vercel: `GOOGLE_GENERATIVE_AI_API_KEY`, las de Supabase (creadas por la integración), `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`, `SERPER_API_KEY`, `APIFY_TOKEN`. Plantilla en `.env.example`. `ELEVENLABSKEY` sobra y se puede borrar.
+- Diagnóstico: `/api/health` muestra versión, proveedor de IA y qué variables ve (solo nombres). `/api/health?probar` hace una llamada real a cada modelo y a la base.
+- Problema conocido: **la capa gratuita de Gemini tiene ~20 pedidos por día por modelo y por proyecto**. Visibilidad consume muchos. Si aparece "You exceeded your current quota": esperar al día siguiente, usar `GEMINI_MODEL_MAIN=gemini-3.5-flash-lite`, una clave de otro proyecto de Google, activar facturación en AI Studio o pasar a `AI_PROVIDER=gateway` (hay $5/mes de crédito gratis en la cuenta de Vercel, solo para algunos modelos).
 
 ## 3. Diseño y UX
 
-### Dirección visual
-Claro, limpio y moderno. Solo tema claro (`color-scheme: light` en `:root` y en `viewport`). Tarjetas blancas sobre fondo gris azulado muy suave, un único color de acento (índigo), bordes finos, radios generosos.
-
-### Tokens (en `app/globals.css`, formato oklch)
-
-| Token | Valor | Uso |
-|---|---|---|
-| `--background` | `oklch(0.985 0.003 255)` | Fondo de la app |
-| `--foreground` | `oklch(0.21 0.02 265)` | Texto |
-| `--card` / `--popover` | `oklch(1 0 0)` | Tarjetas, topbar, popovers |
-| `--primary` | `oklch(0.52 0.19 268)` | Acento índigo (botones, links, foco) |
-| `--accent` | `oklch(0.95 0.025 268)` | Fondo suave del ítem activo |
-| `--accent-foreground` | `oklch(0.35 0.12 268)` | Texto del ítem activo |
-| `--muted` / `--muted-foreground` | `oklch(0.96 0.006 260)` / `oklch(0.5 0.02 262)` | Fondos y textos secundarios |
-| `--border` | `oklch(0.92 0.008 260)` | Bordes |
-| `--success` | `oklch(0.62 0.15 150)` | Aprobado, origen confirmado |
-| `--warning` | `oklch(0.78 0.15 85)` | Esperando aprobación |
-| `--info` | `oklch(0.6 0.15 245)` | En curso |
-| `--stale` | `oklch(0.7 0.17 55)` | Desactualizada |
-| `--destructive` | `oklch(0.577 0.22 27)` | Errores |
-| `--radius` | `0.75rem` | Radio base |
-
-Tokens extra registrados en `@theme inline`: `--color-success`, `--color-warning`, `--color-info`, `--color-stale` (se usan como `bg-success`, `text-warning`, etc.). Sidebar con sus propios tokens (`--sidebar-*`) iguales al esquema principal.
-
-### Layout general (`app/marca/[brandId]/layout.tsx`)
-```
-┌───────────────────────────── Topbar (h-14) ─────────────────────────────┐
-│ Logo | Selector de marca |  Marca · Diagnóstico · Estrategia · Plan · Contenido  | Visibilidad NN/100 │
-├──────────┬──────────────────────────────────────────┬───────────────────┤
-│ Sidebar  │              Contenido de la pestaña      │ Copiloto lateral  │
-│ (w-60)   │                                          │ (solo si la       │
-│          │                                          │  pestaña no es    │
-│          │                                          │  Copiloto)        │
-└──────────┴──────────────────────────────────────────┴───────────────────┘
-```
-- Desktop: sidebar fija de 240 px. Móvil (`< md`): `MobileNav` horizontal con scroll (pastillas redondeadas).
-- Topbar: logo (link a `/`), selector de marca (`BrandSwitcher`), stepper de 5 etapas (visible desde `lg`) y, si existe, la píldora "Visibilidad NN/100".
-- Copiloto lateral (`components/shell/side-copilot.tsx`): el mismo chat del Copiloto, acompañando a las demás pestañas.
-
-### Sidebar y estados de pestaña
-Grupos y pestañas (definidos en `lib/tabs.ts`):
-
-| Grupo | Pestañas |
-|---|---|
-| (sin título) | Copiloto |
-| Diagnóstico | Marca, Visibilidad digital, Percepción |
-| Estrategia | Nicho y posicionamiento |
-| Plan | Calendario |
-| Herramientas | Contenido, Medios, Ads (Meta), Dashboard |
-
-Indicador a la derecha de cada ítem:
-- Candado: bloqueada (el tooltip `title` explica por qué)
-- Punto azul (`info`): en curso
-- Punto amarillo (`warning`): esperando tu aprobación
-- Punto naranja (`stale`): desactualizada
-- Check verde en círculo: aprobada
-
-### Reglas de bloqueo (`getBrandState` en `lib/tabs.ts`)
-- Copiloto, Marca, Medios, Dashboard: siempre abiertas
-- Visibilidad y Percepción: requieren Ficha aprobada (CP1)
-- Nicho y posicionamiento: requiere Visibilidad aprobada y Percepción aprobada (o salteada vía CP3 `salteado`)
-- Calendario: requiere estrategia aprobada
-- Contenido: requiere al menos un ítem del calendario aprobado o producido
-- Ads (Meta): requiere calendario aprobado
-
-### Etapas del stepper
-`Marca → Diagnóstico → Estrategia → Plan → Contenido`. Mapeo de `brands.stage`: `arranque`/`onboarding` = Marca, `diagnostico`, `estrategia`, `plan`, `ejecucion` = Contenido.
-
-### UX del Copiloto (experiencia guiada)
-- El dueño no sabe de marketing ni IA: el Copiloto lleva la charla.
-- Una sola pregunta por mensaje, corta, voseo, sin jerga. Siempre con 2 a 4 respuestas rápidas (chips) vía la herramienta `ask_choice`.
-- Explica para qué pide cada dato.
-- Objetivos: no pregunta en abstracto, propone 2 o 3 con fecha (`propose_objectives`) según stock, temporada y la fecha de hoy.
-- Respuestas pensadas para voz: frases naturales, sin listas largas, sin markdown ni símbolos.
-- Nunca avanza de etapa sin `request_approval`.
-- Nombre y ciudad se piden en el propio Copiloto (arranque con "Contanos de tu negocio"); no hay formulario de alta de marca.
-
-### Procedencia de datos
-Cada campo de la Ficha tiene un origen, mostrado con `components/shared/provenance-badge.tsx`: `confirmado` (lo dijo el dueño), `inferido` (deducido de archivos o web, pide confirmación), `externo`, `pendiente`.
-
-### Accesibilidad aplicada
-Landmarks con `aria-label` (`nav` "Secciones", `ol` "Etapa del proyecto"), `aria-current` en ítem activo y etapa actual, textos `sr-only` para los estados, `lang="es"`.
-
----
+- Tokens en `app/globals.css` (hex): fondo `#FBF1E4`, tarjetas `#FFFBF5`, bordes `#F3E2CC`, primario `#F28C38`, acento suave `#FDE3CB`/`#8F3E0B`, texto `#3B2A1F`, secundario `#7A6656`. Estados: `success`, `warning`, `info`, `stale`. Solo tema claro.
+- Layout: topbar (logo, selector de marca, stepper de 5 etapas, puntaje de visibilidad) + sidebar agrupada (Copiloto · Diagnóstico: Marca, Visibilidad, Percepción · Estrategia: Nicho y posicionamiento · Plan: Calendario · Herramientas: Contenido, Medios, Ads, Dashboard) + contenido + Copiloto lateral.
+- Experiencia guiada: una pregunta por mensaje, 2 a 4 chips, explicar para qué se pide cada dato, objetivos propuestos con fecha, respuestas escritas para ser habladas.
+- Componentes compartidos de las pestañas nuevas: `components/tabs/shared.tsx` (`useActions`, `PageHead`, `Empty`, `ApproveBar`, `postJSON`, `money`, `fmtDate`).
 
 ## 4. Flujo de entrada (sin login)
 
@@ -149,14 +40,12 @@ Landmarks con `aria-label` (`nav` "Secciones", `ol` "Etapa del proyecto"), `aria
 2. El Copiloto detecta el nombre placeholder y arranca la conversación pidiendo nombre y ciudad (`POST /api/brands/[brandId]/start`).
 3. Se pueden tener varias marcas: el `BrandSwitcher` de la topbar cambia y crea marcas.
 
----
-
 ## 5. Estructura del proyecto
 
 ```
 app/
   page.tsx                          Redirige a la marca más reciente (o crea una)
-  layout.tsx                        Inter, metadata, Toaster, suppressHydrationWarning en <body>
+  layout.tsx                        Outfit, metadata, Toaster, suppressHydrationWarning en <body>
   globals.css                       Tokens de diseño
   marca/[brandId]/
     layout.tsx                      Shell: Topbar + Sidebar + contenido + copiloto lateral
@@ -190,23 +79,20 @@ lib/
   voice/use-voice.ts                Hook de voz (grabar, transcribir, hablar)
   supabase/{client,server}.ts
 docs/
-  SPEC_ORIGINAL.md
+  SPEC.md
   HANDOFF.md
 ```
-
----
+- Nuevos: `components/tabs/{percepcion,estrategia,calendario,contenido,ads,dashboard}-tab.tsx`, `components/tabs/shared.tsx`, `lib/agents/strategy.ts` (A3, A4, A5 y guiones), `app/api/{calendar/item,content/script,sales,insights,health}/route.ts`.
 
 ## 6. Datos (Supabase)
 
-Proyecto Supabase conectado desde la integración de v0. La migración `001_init` ya está aplicada (tablas del §7 del spec). **El SQL no está guardado como archivo en el repo**: copiarlo del spec o pedirle al nuevo chat que lo exporte desde la base si hace falta versionarlo.
+Proyecto Supabase conectado desde Vercel (Storage). Es una base nueva, creada después de la hackathon corriendo la migración. El SQL está en `supabase/migrations/001_init.sql` (tablas + buckets). Para empezar de cero: `truncate table brands cascade;`.
 
 - Tablas: `brands`, `dossier_sections`, `field_provenance`, `media`, `products`, `brand_channels`, `competitors`, `objectives`, `messages`, `agent_runs`, `visibility_queries`, `visibility_results`, `reviews`, `campaigns`, `plan_items`, `scripts`, `skills`, `edits`, `content_pieces`, `ads_campaigns`, `sales_monthly`, `sales_products`, `insights`, `approvals`, `commercial_dates`.
-- **RLS activado en todas las tablas sin políticas.** Solo se accede desde el servidor con la service role; la anon key pública no puede leer nada. Es una desviación consciente del spec (que dejaba RLS apagado).
+- RLS: la migración no lo activa (como pide el spec para el MVP). Todo el acceso a datos pasa por el servidor con la service role; el navegador solo usa la anon key para subir archivos con URL firmada. Activar RLS es parte del pendiente de seguridad.
 - Storage: `brand-files` (privado), `media-public` (público), `voice-messages` (privado), `tts-cache` (privado), `generated-assets` (público).
 - El Expediente (`dossier_sections`) es versionado por sección: `ficha`, `visibilidad`, `percepcion`, `estrategia`, `calendario`. Estados: `draft`, `pending_approval`, `approved`, `stale`. Cambiar una sección aguas arriba marca como `stale` las dependientes (`DEPENDENTS` en `lib/dossier.ts`).
-- `commercial_dates`: se había investigado con fuentes reales para Argentina, pero **no se verificó si quedó cargada**. Revisar con un `select count(*)` antes de la fase del Calendario.
-
----
+- `commercial_dates`: vacía en la base actual. Cargarla con `source_url` real.
 
 ## 7. API
 
@@ -229,15 +115,18 @@ Proyecto Supabase conectado desde la integración de v0. La migración `001_init
 | `/api/voice/status` | GET | Si hay ElevenLabs disponible |
 | `/api/voice/transcribe` | POST | Audio a texto |
 | `/api/voice/speak` | POST | Texto a audio (cache en `tts-cache`) |
-
----
+| `/api/calendar/item` | PATCH, POST | Editar un ítem del calendario / aprobar todos los propuestos |
+| `/api/content/script` | POST | Guion de una pieza aprobada |
+| `/api/sales` | GET, POST | Ventas agregadas / cargar ventas de ejemplo (`is_demo`) |
+| `/api/insights` | POST | 3 hallazgos de ventas con IA |
+| `/api/health` | GET | Diagnóstico de configuración (`?probar` hace llamadas reales) |
 
 ## 8. Copiloto: herramientas y prompt
 
 Prompt en `lib/copilot/system-prompt.ts` (recibe Expediente, checklist, medios, pestaña actual y fecha de hoy en Argentina). Herramientas en `lib/copilot/tools.ts`:
 
 - Con interfaz en el chat (sin `execute`, resuelve el cliente): `ask_choice`, `request_upload`, `propose_objectives`, `open_tab`
-- Con efecto en servidor: `save_field`, `save_products`, `save_channel`, `save_objectives`, `save_product_flags`, `save_competitor`, `run_agent` (A1, A2), `request_approval` (CP1, CP2a, CP2), `get_dossier`
+- Con efecto en servidor: `save_field`, `save_products`, `save_channel`, `save_objectives`, `save_product_flags`, `save_competitor`, `run_agent` (A1 a A5), `request_approval` (CP1, CP2a, CP2, CP3, CP4, CP5), `get_dossier`
 
 `save_field` también sincroniza `brands.size_segment`, `brands.city` y `brands.name` cuando corresponde.
 
@@ -246,19 +135,19 @@ Prompt en `lib/copilot/system-prompt.ts` (recibe Expediente, checklist, medios, 
 - Recomendados: stock, manual de marca o logo, Instagram o TikTok, competidores, reseñas, historial de ventas
 - Opcional: restricciones
 
----
-
 ## 9. Agentes
 
-| Agente | Estado | Qué hace |
-|---|---|---|
-| A1 | Hecho | Lee y consolida fuentes (web del cliente y archivos cargados) y arma el borrador de la Ficha |
-| A2 | Hecho | Visibilidad digital: genera búsquedas, las mide en 5 canales (`llm`, `google_web`, `google_maps`, `instagram`, `tiktok`), detecta competidores y calcula `puntaje_global` |
-| A3 a A8 | Pendientes | Percepción, estrategia, calendario, guiones, edición de video, contenido, ads, etc. (ver spec) |
+| Agente | Archivo | Qué hace | Guarda en |
+|---|---|---|---|
+| A1 | `lib/agents/a1.ts` | Lee web y archivos, arma el borrador de la Ficha | `dossier_sections.ficha`, `products`, `brand_channels` |
+| A2 | `lib/agents/a2.ts` | Visibilidad: genera búsquedas (fase `generate`) y las mide (fase `execute`) en IA (búsqueda web del proveedor), Google, Maps, Instagram, TikTok | `visibility_*`, `competitors`, sección `visibilidad` |
+| A3 | `lib/agents/strategy.ts` | Percepción: temas de reseñas y brechas con preguntas | sección `percepcion` (`respuestas` las completa el dueño) |
+| A4 | `lib/agents/strategy.ts` | Nichos según tamaño (descubrir/validar/profundizar, fase `nichos`) y posicionamiento del nicho elegido (fase `posicionamiento`) | sección `estrategia` |
+| A5 | `lib/agents/strategy.ts` | Calendario: horizonte = hasta el objetivo más lejano, piezas por semana de la Ficha, fechas solo de `commercial_dates` | sección `calendario` (`campanas`, `items` con `status`) |
+| Guion | `writeScript` en `strategy.ts` | Guion de una pieza (sincrónico) | `items[].script` |
+| Ventas | `/api/insights` | 3 hallazgos sobre los agregados | `insights` |
 
-Los agentes corren con `after()` y reportan progreso en `agent_runs.progress` (`RunProgress` en `lib/agents/runs.ts`). La UI consulta `/api/agents/runs/[runId]`. A2 exige Ficha aprobada.
-
----
+El calendario guarda campañas e ítems dentro de `dossier_sections.calendario.data` (no usa las tablas `campaigns`/`plan_items` del spec).
 
 ## 10. Voz
 
@@ -267,44 +156,31 @@ Los agentes corren con `after()` y reportan progreso en `agent_runs.progress` (`
 - Sin ElevenLabs: fallback al reconocimiento y la síntesis del navegador.
 - Las respuestas del Copiloto se escriben para ser habladas.
 
----
+## 11. Estado
 
-## 11. Estado por fase
+| Área | Estado |
+|---|---|
+| Copiloto guiado, voz, carga de archivos, Ficha (CP1) | Hecho |
+| Visibilidad digital (CP2) | Hecho (consume mucho cupo de IA) |
+| Percepción (CP3, opcional) | Hecho |
+| Nicho y posicionamiento (CP4) | Hecho |
+| Calendario (CP5) | Hecho |
+| Contenido | Guiones con IA y piezas PNG con plantilla. Sin edición real de video (A8) ni provider `workflow` |
+| Medios | Hecho (incluye subir skill de edición) |
+| Ads (Meta) | Simulado, sin persistencia |
+| Dashboard | Hecho (ventas desde Excel o de ejemplo + hallazgos con IA) |
 
-| Fase | Contenido | Estado |
-|---|---|---|
-| 1 | Base de datos, buckets, layout con sidebar y estados | Hecha (sin login) |
-| 2 | Arranque, A1 (ingesta) y Medios | Hecha |
-| 3 | Copiloto guiado con herramientas y voz | Hecha |
-| 4 | Pestaña Marca (Ficha) y CP1 | Hecha |
-| 5 | A2 Visibilidad digital y CP2 | Hecha |
-| 6 en adelante | Percepción, Nicho y posicionamiento, Calendario, Contenido, Ads (Meta), Dashboard | **Pendiente** |
+## 12. Pendientes
 
-Las pestañas Percepción, Estrategia, Calendario, Contenido, Ads y Dashboard figuran en la sidebar y respetan sus reglas de bloqueo, pero su contenido todavía no está construido. Verificar en `components/tabs/tab-router.tsx` qué muestra cada una.
+1. **Cupo de IA**: definir proveedor estable (facturación en Gemini o AI Gateway) antes de que lo use alguien más.
+2. Cargar `commercial_dates` con fuente real; sin datos, el calendario no menciona fechas comerciales.
+3. A8: transcribir grabaciones (ElevenLabs) y generar plan de edición + SRT siguiendo la skill subida.
+4. Ads: persistir en `ads_campaigns` y preparar la interfaz para Meta Marketing API.
+5. Seguridad: sin login y con service role, cualquiera con la URL usa la app. Agregar Vercel Deployment Protection o auth antes de compartirla.
+6. Actualizar Next.js: el build avisa de una actualización de seguridad.
+7. `lib/agents/a2.ts` es el agente más caro: evaluar cachear resultados o bajar la cantidad de búsquedas.
 
----
+## 13. Mockups y material fuera del repo
 
-## 12. Historial de problemas resueltos
-
-- Error `Cannot write to a CLOSED writable stream` en `/api/chat`: corregido en `app/api/chat/route.ts` (manejo del stream al cerrarse la conexión).
-- Error de hidratación por atributo inyectado en `<body>` (extensiones del navegador): `suppressHydrationWarning` en `app/layout.tsx`.
-- 404 en la preview: se ajustó `next.config.mjs` y se corrigieron rutas.
-- Login: eliminado (`proxy.ts`, `lib/auth.ts`, `/login`, `/api/auth/*`, formulario y botón de salir).
-- Alta de marca: ya no es un diálogo al entrar; el usuario carga todo desde el Copiloto, adentro de la app.
-- AI Gateway pedía tarjeta de crédito: reemplazado por Gemini (`@ai-sdk/google`), probado con salida estructurada en ambos modelos.
-
-## 13. Pendientes y cosas a tener en cuenta
-
-1. Construir las pestañas y agentes de las fases siguientes (ver spec §16).
-2. Verificar que `commercial_dates` tenga datos con `source_url`; si no, cargarlas con fuente antes del Calendario.
-3. Versionar el SQL de la migración en `supabase/migrations/`.
-4. Borrar variables sin uso: `DEMO_USER_EMAIL`, `DEMO_USER_PASSWORD`, `AUTH_SECRET`.
-5. Sin login y con service role en el servidor, **cualquiera con la URL puede usar la app**. Si se publica, agregar protección (Vercel Deployment Protection o auth) antes de compartirla.
-6. La capa gratuita de Gemini tiene límites de cuota: si aparecen errores 429, bajar frecuencia o pasar a `gemini-3.5-flash-lite` en `GEMINI_MODEL_MAIN`.
-7. Los modelos Gemini se configuran por variable de entorno; verificar nombres vigentes en Google AI Studio si algún día fallan.
-
----
-
-## 14. Prompt listo para pegar en el chat nuevo
-
-> Estoy continuando un proyecto llamado Vitrina (director de marketing con IA para retail argentino). Adjunto el proyecto (ZIP o repo) con `docs/HANDOFF.md` (estado real) y `docs/SPEC_ORIGINAL.md` (spec original). Leé primero `docs/HANDOFF.md` completo y luego las secciones del spec que correspondan. Reglas: español rioplatense (voseo), Argentina, diseño claro y moderno con los tokens de `app/globals.css`, sin login, Supabase con service role solo en servidor, LLM con Gemini vía `lib/ai.ts` (sin AI Gateway), sin inventar datos ni fechas, y preguntame antes de asumir. Las fases 1 a 5 están hechas. Quiero continuar con la fase 6: pestaña Percepción (A3) y su checkpoint, respetando las reglas de bloqueo de `lib/tabs.ts`. Antes de escribir código, revisá `lib/dossier.ts`, `lib/agents/start.ts` y `components/tabs/visibilidad-tab.tsx` para seguir los mismos patrones.
+- Prototipo navegable (artifact de Claude) "MarkeSys Demo": mismo recorrido con datos de ejemplo, el Copiloto usa Claude. Útil para demos sin depender de Vercel.
+- Logo e imagen de LinkedIn: hechos aparte (ícono naranja estilo iOS con M crema y S tinta; slogan "Tu director de marketing con IA: te dice cómo te encuentran hoy y hacia dónde llevar tu marca.").

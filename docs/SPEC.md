@@ -1,6 +1,6 @@
-# SPEC v0 · v2 — Vitrina: director de marketing con IA para retail
+# SPEC — MarkeSys (antes "Vitrina"): director de marketing con IA para retail
 
-> Documento para el agente de desarrollo v0. Construir EXACTAMENTE lo descrito. Donde dice **VERIFICAR**, consultar la doc oficial del proveedor antes de codear; no adivinar endpoints. UI en español rioplatense (voseo). `APP_NAME = "Vitrina"` (provisorio).
+> Documento para el agente de desarrollo v0. Construir EXACTAMENTE lo descrito. Donde dice **VERIFICAR**, consultar la doc oficial del proveedor antes de codear; no adivinar endpoints. UI en español rioplatense (voseo). `APP_NAME = "MarkeSys"`. Nota: este spec se escribió para v0; el estado real del código está en `docs/HANDOFF.md`, que manda ante cualquier diferencia.
 
 ---
 

@@ -29,7 +29,7 @@ export async function GET(req: Request) {
   return NextResponse.json({
     version: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? 'local',
     entorno: process.env.VERCEL_ENV ?? 'local',
-    ia: AI_PROVIDER === 'gateway' ? 'SIN CLAVE (cargá GOOGLE_GENERATIVE_AI_API_KEY y hacé Redeploy)' : AI_PROVIDER,
+    ia: AI_PROVIDER === 'gateway' && process.env.AI_PROVIDER?.trim().toLowerCase() !== 'gateway' ? 'SIN CLAVE (cargá GOOGLE_GENERATIVE_AI_API_KEY y hacé Redeploy)' : AI_PROVIDER,
     gemini: GOOGLE_KEY ? `sí (variable ${GOOGLE_KEY.name})` : 'no encontrada',
     variables_visibles: Object.keys(process.env).filter((k) => /GOOGLE|GEMINI|SUPABASE|ELEVEN|SERPER|APIFY|ANTHROPIC/i.test(k)).sort(),
     supabase: has('NEXT_PUBLIC_SUPABASE_URL') || has('SUPABASE_URL'),
