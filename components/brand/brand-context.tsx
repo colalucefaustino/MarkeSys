@@ -4,6 +4,7 @@ import { createContext, useContext, type ReactNode } from 'react'
 import useSWR from 'swr'
 import type { BrandState } from '@/lib/tabs'
 import type { ChecklistItem } from '@/lib/checklist'
+import type { ScriptedStep } from '@/lib/copilot/scripted'
 
 export interface RunSummary {
   id: string
@@ -27,6 +28,8 @@ export interface Overview {
   }
   state: BrandState
   checklist: ChecklistItem[]
+  /** Preguntas fijas pendientes (se responden con botones, sin IA). */
+  scripted: ScriptedStep[]
   media: {
     id: string
     kind: string

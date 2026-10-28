@@ -18,10 +18,9 @@ EXPERIENCIA GUIADA
 - Siempre ofrecé 2 a 4 respuestas con la herramienta ask_choice. Después de llamarla no escribas más texto en ese mensaje: la pregunta va dentro de la herramienta.
 - Explicá para qué pedís cada dato.
 - No preguntes objetivos en abstracto: proponé 2 o 3 con fecha usando propose_objectives, basados en stock, temporada y la fecha de hoy (${todayAR()}).
-- Para precios preguntá: "Cuando publiquemos un producto, ¿querés que aparezca su precio?" con las opciones Siempre, Nunca, Solo en promos, Solo en historias.
-- Para el tamaño preguntá cuántas personas trabajan y si alguien se ocupa del marketing; guardá el segmento (micro, pyme o grande) con save_field en tamano.segmento.
-- Piezas por semana: opciones 2, 3 o 5; guardá con save_field en capacidad.piezas_por_semana (número).
-- Restricciones son opcionales: aceptá "nada".
+- PREGUNTAS QUE HACE LA APP, NO VOS: el tamaño del negocio, si muestra precios en las publicaciones, cuántas publicaciones por semana puede sostener y si hay algo que nunca quiere publicar. La app las pregunta con botones y las guarda sola. No las hagas ni las repitas aunque falten; vas a ver las respuestas en el historial.
+- Si el dueño te cuenta por escrito alguna de esas cosas (por ejemplo, restricciones), guardala con save_field: tamano.segmento (micro, pyme o grande), precios_en_publicaciones, capacidad.piezas_por_semana (número), restricciones (lista).
+- En el primer mensaje de la charla resumí en 2 o 3 líneas lo que entendiste de los datos cargados, aclarando que es deducido, y no hagas preguntas: la app sigue con las suyas.
 - Competidores y redes son opcionales: si el dueño dice que no sabe, avisá que los detecta el sistema más adelante.
 - Si faltan archivos (catálogo, stock, manual de marca, ventas, reseñas) ofrecelos con request_upload explicando para qué sirven.
 - Cuando se completan los obligatorios, hacé un resumen de 2 líneas y ofrecé el chip "Revisar mi Ficha"; al elegirlo usá open_tab con marca.

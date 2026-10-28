@@ -7,6 +7,7 @@ import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls, type
 import { toast } from 'sonner'
 import { useVoice } from '@/lib/voice/use-voice'
 import { useBrand } from '@/components/brand/brand-context'
+import type { ScriptedStep } from '@/lib/copilot/scripted'
 
 type InputMode = 'texto' | 'voz' | 'chip'
 
@@ -21,6 +22,10 @@ interface ChatCtx {
   conversation: boolean
   setConversation: (v: boolean) => void
   listen: (text: string) => void
+  /** Próxima pregunta fija (con botones, sin IA), o null. */
+  scriptedStep: ScriptedStep | null
+  answerScripted: (step: ScriptedStep, optionIndex: number) => Promise<void>
+  answeringScripted: boolean
 }
 
 const Ctx = createContext<ChatCtx | null>(null)
@@ -35,7 +40,7 @@ export function messageSpeechText(m: UIMessage) {
 }
 
 export function ChatProvider({ initialMessages, children }: { initialMessages: UIMessage[]; children: ReactNode }) {
-  const { brandId, refresh } = useBrand()
+  const { brandId, refresh, data } = useBrand()
   const router = useRouter()
   const pathname = usePathname()
   const tab = pathname.split('/')[3] ?? 'copiloto'
@@ -99,6 +104,41 @@ export function ChatProvider({ initialMessages, children }: { initialMessages: U
     [voice],
   )
 
+  // Preguntas fijas: se guardan sin IA. Las opciones que necesitan conversación
+  // (ej. "Sí, te cuento") se mandan a la IA y la pregunta se saltea en esta sesión.
+  const [dismissed, setDismissed] = useState<string[]>([])
+  const [answeringScripted, setAnsweringScripted] = useState(false)
+  const scriptedStep = (data.scripted ?? []).find((st) => !dismissed.includes(st.id)) ?? null
+
+  const answerScripted = useCallback(
+    async (step: ScriptedStep, optionIndex: number) => {
+      const option = step.options[optionIndex]
+      if (!option) return
+      if (option.send) {
+        setDismissed((d) => [...d, step.id])
+        send(option.send, 'chip')
+        return
+      }
+      setAnsweringScripted(true)
+      try {
+        const res = await fetch('/api/copilot/answer', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ brandId, stepId: step.id, optionIndex }),
+        })
+        if (!res.ok) throw new Error()
+        const { messages } = (await res.json()) as { messages: UIMessage[] }
+        chat.setMessages((prev) => [...prev, ...messages])
+        await refresh()
+      } catch {
+        toast.error('No pude guardar tu respuesta. Probá de nuevo.')
+      } finally {
+        setAnsweringScripted(false)
+      }
+    },
+    [brandId, chat, refresh, send],
+  )
+
   const listen = useCallback(
     (text: string) => {
       void voice.speak(text)
@@ -144,6 +184,9 @@ export function ChatProvider({ initialMessages, children }: { initialMessages: U
         conversation,
         setConversation,
         listen,
+        scriptedStep,
+        answerScripted,
+        answeringScripted,
       }}
     >
       {children}

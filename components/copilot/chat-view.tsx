@@ -158,6 +158,34 @@ function ToolPart({ part, isLast }: { part: any; isLast: boolean }) {
   return null
 }
 
+/** Pregunta fija del Copiloto: botones que guardan la respuesta sin pasar por la IA. */
+function ScriptedCard() {
+  const { scriptedStep: step, answerScripted, answeringScripted, busy } = useCopilot()
+  if (!step) return null
+  return (
+    <div className="flex flex-col items-start">
+      <div className="max-w-[92%] rounded-2xl rounded-bl-md border bg-card px-3.5 py-2 text-sm leading-relaxed">
+        <p>{step.question}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{step.why}</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {step.options.map((o, i) => (
+            <button
+              key={o.label}
+              type="button"
+              disabled={answeringScripted || busy}
+              onClick={() => void answerScripted(step, i)}
+              className="rounded-full border bg-card px-3 py-1.5 text-sm transition-colors hover:bg-accent disabled:opacity-50"
+            >
+              {o.label}
+            </button>
+          ))}
+          {answeringScripted && <Loader2 className="size-4 self-center animate-spin text-muted-foreground" aria-label="Guardando" />}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function Bubble({ m, isLast }: { m: UIMessage; isLast: boolean }) {
   const { listen, voice } = useCopilot()
   const isUser = m.role === 'user'
@@ -215,13 +243,13 @@ export function ChatView({
   className?: string
   emptyHint?: string
 }) {
-  const { messages, busy, send, stop, voice, conversation, setConversation } = useCopilot()
+  const { messages, busy, send, stop, voice, conversation, setConversation, scriptedStep } = useCopilot()
   const [input, setInput] = useState('')
   const endRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [messages, busy])
+  }, [messages, busy, scriptedStep])
 
   function submit() {
     if (!input.trim() || busy || disabled) return
@@ -248,6 +276,12 @@ export function ChatView({
   }
 
   const lastAssistantIdx = messages.map((m) => m.role).lastIndexOf('assistant')
+  // Si la IA dejó una pregunta con botones sin responder, la pregunta fija espera.
+  const pendingTool =
+    lastAssistantIdx >= 0 &&
+    (messages[lastAssistantIdx].parts as any[]).some(
+      (p) => ['tool-ask_choice', 'tool-request_upload', 'tool-propose_objectives'].includes(p.type) && p.state === 'input-available',
+    )
   const state = voice.recording ? 'Escuchando…' : voice.transcribing ? 'Transcribiendo…' : voice.speaking ? 'Hablando…' : busy ? 'Pensando…' : null
 
   return (
@@ -258,6 +292,7 @@ export function ChatView({
           {messages.map((m, i) => (
             <Bubble key={m.id} m={m} isLast={i === lastAssistantIdx} />
           ))}
+          {!busy && !pendingTool && <ScriptedCard />}
           {busy && (
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Loader2 className="size-3.5 animate-spin" /> Pensando…

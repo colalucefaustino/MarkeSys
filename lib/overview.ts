@@ -1,6 +1,7 @@
 import { getDossier, provenanceMap } from '@/lib/dossier'
 import { getBrandState } from '@/lib/tabs'
 import { computeChecklist } from '@/lib/checklist'
+import { pendingScriptedSteps } from '@/lib/copilot/scripted'
 import { latestRun } from '@/lib/agents/runs'
 import type { Overview } from '@/components/brand/brand-context'
 
@@ -19,6 +20,7 @@ export async function getOverview(brandId: string): Promise<Overview | null> {
     brand: d.brand,
     state,
     checklist: computeChecklist(d),
+    scripted: pendingScriptedSteps(d),
     media: d.media,
     ficha: d.sections.ficha ?? null,
     visibilidad: d.sections.visibilidad ?? null,
