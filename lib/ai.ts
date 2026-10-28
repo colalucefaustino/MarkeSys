@@ -50,7 +50,7 @@ const GATEWAY_FAST =
   process.env.GATEWAY_MODEL_FAST || (AI_PROVIDER === 'google' ? `google/${GEMINI_FAST}` : claudeGatewayId(CLAUDE_FAST))
 
 /** El Gateway funciona solo dentro de Vercel (OIDC) o con AI_GATEWAY_API_KEY. */
-const GATEWAY_AVAILABLE = Boolean(process.env.AI_GATEWAY_API_KEY?.trim() || process.env.VERCEL_OIDC_TOKEN || process.env.VERCEL)
+export const GATEWAY_AVAILABLE = Boolean(process.env.AI_GATEWAY_API_KEY?.trim() || process.env.VERCEL_OIDC_TOKEN || process.env.VERCEL)
 export const FALLBACK_ENABLED =
   AI_PROVIDER === 'google' && GATEWAY_AVAILABLE && process.env.AI_FALLBACK?.trim().toLowerCase() !== 'off'
 
@@ -78,6 +78,21 @@ function nextPacificMidnight(now = new Date()): number {
   const h = Number(parts.hour) % 24
   const elapsedMs = ((h * 60 + Number(parts.minute)) * 60 + Number(parts.second)) * 1000
   return now.getTime() - elapsedMs + 24 * 60 * 60 * 1000 + 60_000 // +1 min de margen
+}
+
+/** Marca a Gemini como agotado hasta que Google reinicie el cupo y lo guarda para las demás instancias. */
+function setGeminiExhausted() {
+  geminiExhaustedUntil = nextPacificMidnight()
+  const until = geminiExhaustedUntil
+  // import dinámico: ai-status importa este archivo
+  import('@/lib/ai-status')
+    .then((m) => m.persistGeminiExhausted(until))
+    .catch((e) => console.warn('[ia] no pude guardar el estado del cupo:', e instanceof Error ? e.message : e))
+}
+
+/** Toma el estado guardado por otra instancia del servidor. */
+export function adoptGeminiExhausted(until: number) {
+  if (until > geminiExhaustedUntil) geminiExhaustedUntil = until
 }
 
 export function geminiStatus() {
@@ -115,7 +130,7 @@ function withFallback(primary: LanguageModelV4, backupId: string): LanguageModel
       return await call(model)
     } catch (e) {
       if (model !== primary || !isQuotaError(e) || usesProviderTools(o)) throw e
-      geminiExhaustedUntil = nextPacificMidnight()
+      setGeminiExhausted()
       console.warn(`[ia] Gemini sin cupo hasta ${new Date(geminiExhaustedUntil).toISOString()}; sigo por el Gateway (${backupId})`)
       return await call(backup())
     }
@@ -163,7 +178,7 @@ export function searchModel(): { model: any; tools?: Record<string, any>; via: s
 
 /** Avisar que Gemini se quedó sin cupo durante una búsqueda (desde Visibilidad). */
 export function markGeminiExhausted() {
-  if (FALLBACK_ENABLED) geminiExhaustedUntil = nextPacificMidnight()
+  if (FALLBACK_ENABLED) setGeminiExhausted()
 }
 
 export function todayAR() {

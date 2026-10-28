@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { Logo } from '@/components/logo'
 import { BrandSwitcher } from '@/components/shell/brand-switcher'
+import { AiStatusPill } from '@/components/shell/ai-status-pill'
 import { STAGES, stageIndex } from '@/lib/tabs'
 import { useBrand } from '@/components/brand/brand-context'
 import { cn } from '@/lib/utils'
@@ -42,6 +43,7 @@ export function Topbar() {
       </ol>
 
       <div className="ml-auto flex items-center gap-3">
+        <AiStatusPill />
         {score !== null && (
           <span className="rounded-full border px-2.5 py-1 text-xs">
             Visibilidad <strong className="font-semibold">{score}</strong>/100

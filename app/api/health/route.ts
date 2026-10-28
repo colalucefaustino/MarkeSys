@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { generateText } from 'ai'
-import { AI_PROVIDER, GOOGLE_KEY, MODEL_MAIN, MODEL_FAST, FALLBACK_ENABLED, geminiStatus } from '@/lib/ai'
+import { AI_PROVIDER, GOOGLE_KEY, MODEL_MAIN, MODEL_FAST, FALLBACK_ENABLED } from '@/lib/ai'
+import { getAiStatus } from '@/lib/ai-status'
 import { db } from '@/lib/supabase/server'
 
 export const dynamic = 'force-dynamic'
@@ -32,7 +33,7 @@ export async function GET(req: Request) {
     ia: AI_PROVIDER === 'gateway' && process.env.AI_PROVIDER?.trim().toLowerCase() !== 'gateway' ? 'SIN CLAVE (cargá GOOGLE_GENERATIVE_AI_API_KEY y hacé Redeploy)' : AI_PROVIDER,
     gemini: GOOGLE_KEY ? `sí (variable ${GOOGLE_KEY.name})` : 'no encontrada',
     respaldo_gateway: FALLBACK_ENABLED ? 'activo (si Gemini se queda sin cupo, sigue por el AI Gateway)' : 'apagado',
-    gemini_cupo: geminiStatus(),
+    estado_ia: await getAiStatus(),
     ai_provider_forzado: process.env.AI_PROVIDER?.trim() || null,
     variables_visibles: Object.keys(process.env).filter((k) => /GOOGLE|GEMINI|SUPABASE|ELEVEN|SERPER|APIFY|ANTHROPIC|^AI_|GATEWAY|_MODEL_/i.test(k)).sort(),
     supabase: has('NEXT_PUBLIC_SUPABASE_URL') || has('SUPABASE_URL'),
