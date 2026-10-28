@@ -11,6 +11,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useBrand } from '@/components/brand/brand-context'
 import { ProvenanceBadge, type Origin } from '@/components/shared/provenance-badge'
+import { SocialHandles } from '@/components/shared/social-handles'
 
 type FieldType = 'text' | 'textarea' | 'number' | 'list' | 'bool' | 'select'
 interface FieldDef {
@@ -38,6 +39,7 @@ const SECTIONS: { title: string; fields: FieldDef[] }[] = [
       { path: 'marca.historia', label: 'Historia', type: 'textarea' },
       { path: 'marca.diferencial', label: 'Diferencial', type: 'textarea' },
       { path: 'marca.canales_venta', label: 'Canales de venta', type: 'list', hint: 'Separados por coma' },
+      { path: 'marca.otros_nombres', label: 'Otros nombres del negocio', type: 'list', hint: 'Nombre del local, de la web o de las redes si es distinto a la marca' },
     ],
   },
   {
@@ -373,6 +375,11 @@ export function MarcaTab() {
           </ul>
         </section>
       )}
+
+      <section className="rounded-xl border bg-card p-4">
+        <h2 className="mb-3 text-sm font-semibold">Redes</h2>
+        <SocialHandles note="Las uso para medir si te encuentran en redes y compararte con tu competencia." />
+      </section>
 
       {SECTIONS.map((s) => (
         <section key={s.title} className="rounded-xl border bg-card px-4">

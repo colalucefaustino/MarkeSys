@@ -8,6 +8,8 @@ import { Progress } from '@/components/ui/progress'
 import { cn } from '@/lib/utils'
 import { useBrand } from '@/components/brand/brand-context'
 import type { QueryRow } from '@/components/visibilidad/queries-panel'
+import { SocialHandles } from '@/components/shared/social-handles'
+import { decodeDomain, prettyName } from '@/lib/names'
 
 export interface ResultRow {
   query_id: string
@@ -125,6 +127,26 @@ export function ResultsView({
     await Promise.all([onChange(), refresh()])
   }
 
+  // "Es mi negocio": el nombre pasa a ser propio, sale de competidores y del ranking.
+  const [owning, setOwning] = useState<string | null>(null)
+  async function markOwn(name: string) {
+    setOwning(name)
+    try {
+      const res = await fetch(`/api/brands/${brandId}/own-name`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name }),
+      })
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? 'No pude guardarlo')
+      await Promise.all([onChange(), refresh()])
+      toast.success(`Listo: "${prettyName(name)}" cuenta como tu negocio desde la próxima medición`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'No pude guardarlo')
+    } finally {
+      setOwning(null)
+    }
+  }
+
   const channels = ['llm', 'google_web', 'google_maps']
 
   return (
@@ -228,9 +250,19 @@ export function ResultsView({
           {ranking.length ? (
             <ul className="divide-y">
               {ranking.slice(0, 8).map((r) => (
-                <li key={r.nombre} className="flex items-center justify-between gap-3 px-4 py-2 text-sm">
-                  <span className="min-w-0 truncate">{r.nombre}</span>
-                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{r.apariciones} apariciones</span>
+                <li key={r.nombre} className="group flex items-center justify-between gap-3 px-4 py-2 text-sm">
+                  <span className="min-w-0 truncate">{prettyName(r.nombre)}</span>
+                  <span className="flex shrink-0 items-center gap-2">
+                    <span className="text-xs text-muted-foreground tabular-nums">{r.apariciones} apariciones</span>
+                    <button
+                      type="button"
+                      disabled={owning === r.nombre}
+                      onClick={() => void markOwn(r.nombre)}
+                      className="rounded px-1.5 py-0.5 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:opacity-50"
+                    >
+                      Es mi negocio
+                    </button>
+                  </span>
                 </li>
               ))}
             </ul>
@@ -245,7 +277,7 @@ export function ResultsView({
             <ul className="divide-y">
               {fuentes.slice(0, 8).map((f) => (
                 <li key={f.dominio} className="flex items-center justify-between gap-3 px-4 py-2 text-sm">
-                  <span className="min-w-0 truncate">{f.dominio}</span>
+                  <span className="min-w-0 truncate">{decodeDomain(f.dominio)}</span>
                   <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{f.veces} veces</span>
                 </li>
               ))}
@@ -277,13 +309,23 @@ export function ResultsView({
         </section>
       )}
 
+      <section className="rounded-xl border bg-card">
+        <h2 className="border-b px-4 py-3 text-sm font-semibold">Tus redes</h2>
+        <div className="px-4 py-3">
+          <SocialHandles
+            note="Cargá tus usuarios para medir seguidores, frecuencia de publicación e interacción. Se suman en la próxima medición."
+            onSaved={() => toast.message('Para incluirlos en el diagnóstico tocá "Volver a medir" arriba.')}
+          />
+        </div>
+      </section>
+
       {detected.length > 0 && (
         <section className="rounded-xl border bg-card">
           <h2 className="border-b px-4 py-3 text-sm font-semibold">Competidores detectados</h2>
           <ul className="divide-y">
             {detected.map((c) => (
               <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-sm">
-                <span>{c.name}</span>
+                <span>{prettyName(c.name)}</span>
                 {c.confirmed ? (
                   <span className="text-xs text-emerald-600 dark:text-emerald-400">Confirmado como competidor</span>
                 ) : (
@@ -293,6 +335,9 @@ export function ResultsView({
                     </Button>
                     <Button size="sm" variant="ghost" onClick={() => competitor(c.id, 'delete')}>
                       No es competidor
+                    </Button>
+                    <Button size="sm" variant="ghost" disabled={owning === c.name} onClick={() => void markOwn(c.name)}>
+                      Es mi negocio
                     </Button>
                   </span>
                 )}
