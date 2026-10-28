@@ -41,7 +41,7 @@ export function EstrategiaTab() {
 
   if (!e.nichos?.length) {
     return (
-      <Empty icon={<Target className="size-5" />} title="¿Dónde te conviene pararte?" text={`Con tu diagnóstico te propongo hacia qué nicho ir, con la evidencia de cada opción. Como tu negocio es ${seg}, arranco en modo "${MODOS.find((m) => m.k === defMode)!.l}". Elegís vos.`}>
+      <Empty icon={<Target className="size-5" />} title="¿Dónde te conviene pararte?" text={`Con tu diagnóstico te propongo hacia qué nicho ir, con la evidencia de cada opción y el posicionamiento del recomendado. Como tu negocio es ${seg}, arranco en modo "${MODOS.find((m) => m.k === defMode)!.l}". Elegís vos.${data.reviewsCount >= 5 ? ` También analizo tus ${data.reviewsCount} reseñas.` : ''}`}>
         <Button size="lg" onClick={() => startAgent('A4', { phase: 'nichos', modo: defMode })} disabled={!!busy}>
           {busy === 'A4' && <Loader2 className="animate-spin" />} Ver nichos recomendados
         </Button>
@@ -58,7 +58,7 @@ export function EstrategiaTab() {
       <PageHead
         eyebrow="Estrategia · Nicho y posicionamiento"
         title="¿Dónde te conviene pararte?"
-        text="Cada opción muestra la evidencia de tu diagnóstico. Te recomiendo una, pero elegís vos."
+        text={`Cada opción muestra la evidencia de tu diagnóstico${e.con_percepcion ? ' y de tus reseñas' : ''}. Abajo está el posicionamiento del nicho elegido; si preferís otro, tocá "Elegir este".`}
         right={
           <div className="inline-flex rounded-lg bg-muted p-1" role="group" aria-label="Modo">
             {MODOS.map((m) => (

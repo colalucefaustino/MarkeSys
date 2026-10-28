@@ -6,7 +6,7 @@ export const maxDuration = 300
 
 const Body = z.object({
   brandId: z.string().uuid(),
-  agent: z.enum(['A1', 'A2', 'A3', 'A4', 'A5']),
+  agent: z.enum(['A1', 'A2', 'A4', 'A5']),
   params: z.record(z.string(), z.string()).optional(),
 })
 

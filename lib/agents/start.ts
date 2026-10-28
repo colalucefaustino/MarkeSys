@@ -13,7 +13,7 @@ export async function startAgent(
   agent: AgentKey,
   params: Record<string, string> = {},
 ): Promise<StartResult> {
-  if (!['A1', 'A2', 'A3', 'A4', 'A5'].includes(agent)) {
+  if (!['A1', 'A2', 'A4', 'A5'].includes(agent)) {
     return { ok: false, error: `El agente ${agent} todavía no está disponible.` }
   }
 
@@ -37,8 +37,7 @@ export async function startAgent(
         await runA2(brandId, run.id, progress, params)
       } else {
         const st = await import('@/lib/agents/strategy')
-        if (agent === 'A3') await st.runA3(brandId, run.id, progress)
-        else if (agent === 'A4') await st.runA4(brandId, run.id, progress, params)
+        if (agent === 'A4') await st.runA4(brandId, run.id, progress, params)
         else await st.runA5(brandId, run.id, progress)
       }
     } catch (err) {

@@ -8,7 +8,10 @@ import type { RunProgress } from '@/lib/agents/runs'
 const NO_INVENT =
   'Regla absoluta: usá solo los datos que te paso. No inventes cifras, tamaños de mercado, beneficios ni fechas. Si falta algo, ponelo en missing_inputs.'
 
-/* ───────────── A3 · Percepción ───────────── */
+/* ───────────── Percepción (dentro de la llamada de Estrategia) ───────────── */
+/** Con menos reseñas que esto no se analizan: el resultado sería anecdótico. */
+export const MIN_REVIEWS = 5
+
 const PercepcionSchema = z.object({
   temas: z
     .array(
@@ -27,53 +30,11 @@ const PercepcionSchema = z.object({
         clientes_valoran: z.string(),
         comunicacion_muestra: z.string(),
         tipo: z.enum(['coincide', 'brecha']),
-        pregunta: z.string(),
-        opciones: z.array(z.string()).min(2).max(4),
+        pregunta: z.string().describe('pregunta corta para que el dueño reflexione, en voseo'),
       }),
     )
     .max(5),
-  missing_inputs: z.array(z.string()),
 })
-
-export async function runA3(brandId: string, runId: string, progress: RunProgress) {
-  await progress.init([
-    { id: 'reviews', label: 'Leyendo tus reseñas' },
-    { id: 'analyze', label: 'Buscando qué valoran tus clientes' },
-    { id: 'gaps', label: 'Comparando con lo que vos comunicás' },
-  ])
-  await progress.update('reviews', 'running')
-  const d = await getDossier(brandId)
-  const { data: reviews } = await db().from('reviews').select('id,text,rating').eq('brand_id', brandId).limit(200)
-  const list = reviews ?? []
-  if (!list.length) throw new Error('No hay reseñas cargadas. Pegá algunas o salteá este paso.')
-  await progress.update('reviews', 'done', `${list.length} reseñas`)
-  await progress.update('analyze', 'running')
-  const { object } = await generateObject({
-    model: MODEL_MAIN,
-    schema: PercepcionSchema,
-    prompt: `Analizá la percepción de un comercio argentino.
-${NO_INVENT}
-
-EXPEDIENTE DE LA MARCA (lo que dice el dueño y lo que comunica):
-${dossierSummary(d)}
-
-RESEÑAS DE CLIENTES (${list.length}):
-${list.map((r, i) => `${i + 1}. ${r.rating ? `[${r.rating}★] ` : ''}${String(r.text).slice(0, 400)}`).join('\n')}
-
-1) Extraé los temas que más se repiten, contando en cuántas reseñas aparece cada uno (menciones = conteo real).
-2) Compará tres columnas: lo que dice el dueño (Ficha), lo que valoran los clientes (reseñas) y lo que muestra su comunicación (web, tono, canales). Marcá "coincide" o "brecha".
-3) Para cada brecha escribí una pregunta corta para el dueño, en voseo, con 2 a 4 opciones de respuesta.`,
-  })
-  await progress.update('analyze', 'done', `${object.temas.length} temas`)
-  await progress.update('gaps', 'done', `${object.brechas.filter((b) => b.tipo === 'brecha').length} brechas`)
-  await writeSectionData(
-    brandId,
-    'percepcion',
-    { ...object, cantidad_resenas: list.length, suficiente: list.length >= 5, respuestas: {}, fecha: todayISO() },
-    { status: 'pending_approval', agentRunId: runId },
-  )
-  await progress.finish({ temas: object.temas.length })
-}
 
 /* ───────────── A4 · Estratega ───────────── */
 const NichosSchema = z.object({
@@ -140,38 +101,89 @@ export async function runA4(brandId: string, runId: string, progress: RunProgres
   const prev = d.sections.estrategia?.data ?? {}
 
   if (phase === 'nichos') {
+    // Una sola llamada: percepción (si hay reseñas suficientes) + nichos + posicionamiento del recomendado.
+    const { data: reviewRows } = await db().from('reviews').select('id,text,rating').eq('brand_id', brandId).limit(200)
+    const reviews = reviewRows ?? []
+    const withReviews = reviews.length >= MIN_REVIEWS
+
     await progress.init([
       { id: 'ctx', label: 'Juntando tu diagnóstico' },
-      { id: 'niches', label: 'Evaluando nichos posibles' },
+      ...(withReviews ? [{ id: 'reviews', label: `Leyendo ${reviews.length} reseñas de clientes` }] : []),
+      { id: 'niches', label: 'Evaluando nichos y tu posicionamiento' },
     ])
     await progress.update('ctx', 'done')
+    if (withReviews) await progress.update('reviews', 'running')
     await progress.update('niches', 'running')
+
     const seg = d.brand?.size_segment ?? 'pyme'
     const modo = params.modo || (seg === 'micro' ? 'descubrir' : seg === 'grande' ? 'profundizar' : 'validar')
-    const { object } = await generateObject({
+    const schema = NichosSchema.extend({
+      posicionamiento: PosSchema.describe('posicionamiento para el nicho recomendado'),
+      ...(withReviews ? { percepcion: PercepcionSchema } : {}),
+    })
+    const { object } = (await generateObject({
       model: MODEL_MAIN,
-      schema: NichosSchema,
+      schema,
       prompt: `Sos estratega de marketing para comercios argentinos. Tamaño de la empresa: ${seg}. Modo: ${modo}.
+${
+  withReviews
+    ? `PASO 1 · PERCEPCIÓN (campo "percepcion"): con las reseñas de abajo, extraé los temas que más se repiten (menciones = conteo real de reseñas) y compará tres columnas: lo que dice el dueño (Ficha), lo que valoran los clientes (reseñas) y lo que muestra su comunicación (web, tono, canales). Marcá "coincide" o "brecha" y, para cada brecha, una pregunta corta para que el dueño reflexione. Usá estas conclusiones como evidencia en los pasos siguientes (fuente: Percepción).
+`
+    : ''
+}PASO ${withReviews ? 2 : 1} · NICHOS:
 - descubrir: proponé 3 nichos posibles y recomendá 1.
 - validar: evaluá el nicho actual frente a 2 alternativas y recomendá mantener, ajustar o cambiar.
 - profundizar: el primer nicho es el actual; completá "investigacion" con sub-segmentos, motivaciones, objeciones y preguntas frecuentes, cada una con su fuente.
 Marcá exactamente un nicho como recomendado. Cada evidencia cita su fuente (Visibilidad, Percepción, Catálogo o Ficha).
+PASO ${withReviews ? 3 : 2} · POSICIONAMIENTO del nicho recomendado: propuesta de valor en una frase, 3 mensajes clave, tono con frases sí y no (respetando trato, tono y restricciones de la Ficha) y la persona principal. No prometas beneficios que no figuren en la Ficha.
 ${NO_INVENT}
 
 DATOS:
-${text}`,
-    })
+${text}${
+        withReviews
+          ? `
+
+RESEÑAS DE CLIENTES (${reviews.length}):
+${reviews.map((r, i) => `${i + 1}. ${r.rating ? `[${r.rating}★] ` : ''}${String(r.text).slice(0, 400)}`).join('\n')}`
+          : ''
+      }`,
+    })) as { object: z.infer<typeof NichosSchema> & { posicionamiento: z.infer<typeof PosSchema>; percepcion?: z.infer<typeof PercepcionSchema> } }
+
     const names = d.products.filter((p) => !p.excluded).map((p) => String(p.name).toLowerCase())
     const nichos = object.nichos.map((n) => {
       const hits = n.product_names.filter((x) => names.includes(x.toLowerCase())).length
       return { ...n, porcentaje_catalogo: names.length ? Math.round((hits / names.length) * 100) : null }
     })
-    await progress.update('niches', 'done', `${nichos.length} opciones`)
+    const recomendado = nichos.find((n) => n.recomendado) ?? nichos[0]
+
+    // Percepción primero: guardarla marca Estrategia como desactualizada, y enseguida se reescribe.
+    if (object.percepcion) {
+      await progress.update('reviews', 'done', `${object.percepcion.temas.length} temas`)
+      await writeSectionData(
+        brandId,
+        'percepcion',
+        { ...object.percepcion, cantidad_resenas: reviews.length, suficiente: true, fecha: todayISO() },
+        { status: 'approved', agentRunId: runId },
+      )
+    }
+    const missing = [...object.missing_inputs]
+    if (!withReviews) missing.push(`Reseñas de clientes (con ${MIN_REVIEWS} o más se suma el análisis de percepción)`)
+
+    await progress.update('niches', 'done', `${nichos.length} opciones · recomendado: ${recomendado?.nombre ?? '—'}`)
     await writeSectionData(
       brandId,
       'estrategia',
-      { ...prev, modo: object.modo, nichos, investigacion: object.investigacion ?? null, missing_inputs: object.missing_inputs, nicho_elegido: null, posicionamiento: null },
-      { status: 'draft', agentRunId: runId },
+      {
+        ...prev,
+        modo: object.modo,
+        nichos,
+        investigacion: object.investigacion ?? null,
+        missing_inputs: missing,
+        nicho_elegido: recomendado?.nombre ?? null,
+        posicionamiento: object.posicionamiento,
+        con_percepcion: !!object.percepcion,
+      },
+      { status: 'pending_approval', agentRunId: runId },
     )
     await progress.finish({})
     return

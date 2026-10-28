@@ -90,19 +90,15 @@ export async function getBrandState(brandId: string): Promise<BrandState | null>
   const brand = await getBrand(brandId)
   if (!brand) return null
   const { latest, approvedEver } = await latestSections(brandId)
-  const [{ data: approvals }, { count: approvedItems }] = await Promise.all([
-    db().from('approvals').select('checkpoint,decision').eq('brand_id', brandId),
-    db()
-      .from('plan_items')
-      .select('id', { count: 'exact', head: true })
-      .eq('brand_id', brandId)
-      .in('status', ['aprobada', 'producida']),
-  ])
-  const cp3Skipped = (approvals ?? []).some((a) => a.checkpoint === 'CP3' && a.decision === 'salteado')
+  const { count: approvedItems } = await db()
+    .from('plan_items')
+    .select('id', { count: 'exact', head: true })
+    .eq('brand_id', brandId)
+    .in('status', ['aprobada', 'producida'])
 
   const fichaOk = !!approvedEver.ficha
-  // Percepción es opcional: alcanza con Visibilidad aprobada
-  const diagOk = !!approvedEver.visibilidad || (!!approvedEver.percepcion || cp3Skipped) && !!latest.visibilidad
+  // Percepción se analiza dentro de Estrategia: alcanza con Visibilidad aprobada
+  const diagOk = !!approvedEver.visibilidad
   const stratOk = !!approvedEver.estrategia
   const planOk = !!approvedEver.calendario
 

@@ -163,8 +163,8 @@ export function copilotTools(brandId: string) {
 
     run_agent: tool({
       description:
-        'Encola un agente. A1 = leer y consolidar las fuentes cargadas (web, archivos). A2 = visibilidad digital (solo con la Ficha aprobada). A3 = percepción a partir de reseñas. A4 = nichos (params.phase=nichos) o posicionamiento (params.phase=posicionamiento, params.nicho). A5 = calendario (requiere estrategia aprobada).',
-      inputSchema: z.object({ agent: z.enum(['A1', 'A2', 'A3', 'A4', 'A5']), params: z.record(z.string(), z.string()).optional() }),
+        'Encola un agente. A1 = leer y consolidar las fuentes cargadas (web, archivos). A2 = visibilidad digital (solo con la Ficha aprobada). A4 = estrategia: nichos + posicionamiento del recomendado, y análisis de reseñas si hay 5 o más (params.phase=nichos); posicionamiento de otro nicho (params.phase=posicionamiento, params.nicho). A5 = calendario (requiere estrategia aprobada).',
+      inputSchema: z.object({ agent: z.enum(['A1', 'A2', 'A4', 'A5']), params: z.record(z.string(), z.string()).optional() }),
       execute: async ({ agent, params }) => {
         const res = await startAgent(brandId, agent, params ?? {})
         return res
@@ -174,13 +174,12 @@ export function copilotTools(brandId: string) {
     request_approval: tool({
       description:
         'Muestra una tarjeta de aprobación con link a la pestaña. CP1 = Ficha (pestaña marca). CP2a = búsquedas de visibilidad (pestaña visibilidad).',
-      inputSchema: z.object({ checkpoint: z.enum(['CP1', 'CP2a', 'CP2', 'CP3', 'CP4', 'CP5']) }),
+      inputSchema: z.object({ checkpoint: z.enum(['CP1', 'CP2a', 'CP2', 'CP4', 'CP5']) }),
       execute: async ({ checkpoint }) => {
         const map = {
           CP1: { tab: 'marca', label: 'Revisá y aprobá tu Ficha de marca', section: 'ficha' as const },
           CP2a: { tab: 'visibilidad', label: 'Revisá las búsquedas que vamos a medir', section: 'visibilidad' as const },
           CP2: { tab: 'visibilidad', label: 'Revisá y aprobá tu diagnóstico de visibilidad', section: 'visibilidad' as const },
-          CP3: { tab: 'percepcion', label: 'Respondé las brechas y aprobá tu percepción', section: 'percepcion' as const },
           CP4: { tab: 'estrategia', label: 'Elegí tu nicho y aprobá el posicionamiento', section: 'estrategia' as const },
           CP5: { tab: 'calendario', label: 'Revisá y aprobá tu calendario', section: 'calendario' as const },
         }[checkpoint]
