@@ -15,6 +15,7 @@ export interface ScriptedEffect {
   fields: { path: string; value: unknown }[]
   segment?: 'micro' | 'pyme' | 'grande'
   competitors?: string[]
+  channels?: { type: 'instagram' | 'tiktok'; handle: string }[]
 }
 
 /* ───────────── Rubros y ejemplos ───────────── */
@@ -202,6 +203,31 @@ const STEPS: StepDef[] = [
     path: 'marca.canales_venta',
     show: listText,
     save: (a) => ({ fields: [{ path: 'marca.canales_venta', value: asList(a) }] }),
+  },
+  {
+    id: 'redes',
+    question: () => '¿Cuál es tu usuario de Instagram o TikTok?',
+    why: 'Lo uso para medir si te encuentran en redes y compararte con tu competencia.',
+    mode: 'text',
+    options: () => [],
+    allowText: true,
+    textPlaceholder: () => 'Ej.: @lola.ropa (si tenés los dos, separalos con coma)',
+    skipLabel: 'Lo cargo después',
+    path: 'redes_cargadas',
+    // Solo si dijo que vende por redes y todavía no hay usuario cargado.
+    when: (c) => {
+      const canales: string[] = ((c.d.sections.ficha?.data as any)?.marca?.canales_venta ?? []).map((x: string) => x.toLowerCase())
+      const sells = canales.some((x) => x.includes('instagram') || x.includes('tiktok'))
+      return sells && !c.d.channels.some((ch) => ch.type === 'instagram' || ch.type === 'tiktok')
+    },
+    save: (a) => {
+      const handles = asList(a)
+      const channels = handles.map((h, i) => ({
+        type: (/tiktok/i.test(h) || (i === 1 && handles.length === 2) ? 'tiktok' : 'instagram') as 'instagram' | 'tiktok',
+        handle: h,
+      }))
+      return { fields: [{ path: 'redes_cargadas', value: handles }], channels }
+    },
   },
   {
     id: 'nivel_precio',

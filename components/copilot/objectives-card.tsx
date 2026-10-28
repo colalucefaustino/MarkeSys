@@ -11,6 +11,14 @@ interface Obj {
   deadline: string
   metric?: string
   target?: number
+  proposed_by?: 'copiloto' | 'cliente'
+}
+
+/** Fecha por defecto para un objetivo nuevo: dentro de 30 días. */
+const in30 = () => {
+  const d = new Date()
+  d.setDate(d.getDate() + 30)
+  return d.toISOString().slice(0, 10)
 }
 
 export function ObjectivesCard({
@@ -18,16 +26,18 @@ export function ObjectivesCard({
   onConfirm,
 }: {
   objectives: Obj[]
-  onConfirm: (selected: Obj[]) => void
+  onConfirm: (selected: Obj[]) => Promise<void> | void
 }) {
-  const [items, setItems] = useState(objectives.map((o) => ({ ...o, on: true })))
+  const [items, setItems] = useState<(Obj & { on: boolean })[]>(objectives.map((o) => ({ ...o, proposed_by: 'copiloto', on: true })))
+  const [saving, setSaving] = useState(false)
 
-  const selected = items.filter((i) => i.on)
+  const selected = items.filter((i) => i.on && i.description.trim() && i.deadline)
+  const addOwn = () => setItems((s) => [...s, { description: '', type: 'otro', deadline: in30(), proposed_by: 'cliente', on: true }])
 
   return (
     <div className="rounded-xl border bg-card p-3">
       <p className="text-sm font-medium">Elegí los objetivos que te sirven</p>
-      <p className="text-sm text-muted-foreground">Podés ajustar el texto y la fecha antes de confirmar.</p>
+      <p className="text-sm text-muted-foreground">Elegí todos los que quieras, ajustá el texto y la fecha, o sumá los tuyos.</p>
       <ul className="mt-3 flex flex-col gap-3">
         {items.map((o, i) => (
           <li key={i} className="flex gap-3 rounded-lg border p-2.5">
@@ -40,6 +50,8 @@ export function ObjectivesCard({
             <div className="flex min-w-0 flex-1 flex-col gap-1.5">
               <Input
                 value={o.description}
+                placeholder="Ej.: vender 50 jeans antes de fin de mes"
+                autoFocus={o.proposed_by === 'cliente' && !o.description}
                 aria-label="Objetivo"
                 onChange={(e) => setItems((s) => s.map((x, j) => (j === i ? { ...x, description: e.target.value } : x)))}
               />
@@ -56,14 +68,25 @@ export function ObjectivesCard({
           </li>
         ))}
       </ul>
-      <Button
-        size="sm"
-        className="mt-3"
-        disabled={!selected.length}
-        onClick={() => onConfirm(selected.map(({ on: _on, ...rest }) => rest))}
-      >
-        Confirmar {selected.length === 1 ? 'objetivo' : 'objetivos'}
-      </Button>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button size="sm" variant="outline" onClick={addOwn} disabled={saving}>
+          Sumar otro objetivo
+        </Button>
+        <Button
+          size="sm"
+          disabled={!selected.length || saving}
+          onClick={async () => {
+            setSaving(true)
+            try {
+              await onConfirm(selected.map(({ on: _on, ...rest }) => ({ ...rest, description: rest.description.trim() })))
+            } finally {
+              setSaving(false)
+            }
+          }}
+        >
+          Confirmar {selected.length === 1 ? 'objetivo' : `${selected.length} objetivos`}
+        </Button>
+      </div>
     </div>
   )
 }

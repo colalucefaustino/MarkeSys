@@ -57,6 +57,13 @@ export async function POST(req: Request) {
     if (rows.length) await db().from('competitors').insert(rows)
   }
 
+  for (const ch of r.effect.channels ?? []) {
+    const user = ch.handle.replace(/^https?:\/\/(www\.)?(instagram|tiktok)\.com\/@?/i, '').replace(/^@/, '').replace(/[/?#].*$/, '')
+    if (!/^[a-z0-9._]{2,40}$/i.test(user)) continue
+    await db().from('brand_channels').delete().eq('brand_id', brandId).eq('type', ch.type)
+    await db().from('brand_channels').insert({ brand_id: brandId, type: ch.type, handle_or_url: `@${user}`, origin: 'confirmado' })
+  }
+
   const now = Date.now()
   const [qId, aId] = messageIds ?? [`fija-${stepId}-q-${now}`, `fija-${stepId}-a-${now}`]
   const messages: UIMessage[] = [

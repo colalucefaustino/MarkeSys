@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { ArrowUp, AudioLines, Check, Loader2, Mic, Square, Volume2 } from 'lucide-react'
 import type { UIMessage } from 'ai'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useCopilot, messageSpeechText } from '@/components/brand/chat-context'
@@ -131,7 +132,19 @@ function ToolPart({ part, isLast }: { part: any; isLast: boolean }) {
       <div className="mt-2">
         <ObjectivesCard
           objectives={input.objectives}
-          onConfirm={(selected) => answerTool('propose_objectives', part.toolCallId, { selected })}
+          onConfirm={async (selected) => {
+            // Se guardan directo (también los que escribió el dueño); la IA solo los comenta.
+            const res = await fetch('/api/objectives', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ brandId, objectives: selected }),
+            })
+            if (!res.ok) {
+              toast.error((await res.json().catch(() => null))?.error ?? 'No pude guardar los objetivos.')
+              return
+            }
+            answerTool('propose_objectives', part.toolCallId, { selected, guardados: true })
+          }}
         />
       </div>
     )

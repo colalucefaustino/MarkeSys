@@ -47,8 +47,8 @@ export function copilotTools(brandId: string) {
 
     propose_objectives: tool({
       description:
-        'Propone 2 o 3 objetivos con fecha para que el dueño elija o edite. El resultado trae los elegidos.',
-      inputSchema: z.object({ objectives: z.array(ObjectiveInput).min(2).max(4) }),
+        'Propone 3 a 5 objetivos con fecha para que el dueño elija, edite o sume los suyos. El resultado trae los elegidos; si viene "guardados: true" ya quedaron guardados y NO hay que llamar a save_objectives.',
+      inputSchema: z.object({ objectives: z.array(ObjectiveInput).min(2).max(6) }),
     }),
 
     open_tab: tool({
