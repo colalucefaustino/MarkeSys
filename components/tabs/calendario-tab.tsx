@@ -49,7 +49,7 @@ export function CalendarioTab() {
         <Button size="lg" disabled={!!busy || !data.objectives.length} onClick={() => startAgent('A5')}>
           {busy === 'A5' && <Loader2 className="animate-spin" />} Armar mi calendario
         </Button>
-        {!data.objectives.length && <p className="text-sm text-muted-foreground">Pedile al Copiloto que te proponga objetivos con fecha.</p>}
+        {!data.objectives.length && <p className="text-sm text-muted-foreground">Pedile a Marky que te proponga objetivos con fecha.</p>}
         {a5?.status === 'failed' && <p className="text-sm text-destructive">{a5.error}</p>}
       </Empty>
     )
@@ -179,6 +179,7 @@ export function CalendarioTab() {
               <span className="rounded bg-muted px-2 py-0.5">{FMT[sel.formato] ?? sel.formato}</span>
               <span className="rounded bg-muted px-2 py-0.5">{sel.canal}</span>
               <span className="rounded bg-muted px-2 py-0.5">{sel.muestra_precio ? 'con precio' : 'sin precio'}</span>
+              {sel.historias_por_dia ? <span className="rounded bg-accent px-2 py-0.5 text-accent-foreground">Pauta de la semana · {sel.historias_por_dia} historias por día</span> : null}
               {sel.producto && <span className="rounded bg-muted px-2 py-0.5">{sel.producto}</span>}
               {sel.fecha_comercial && <span className="rounded bg-info/15 px-2 py-0.5 text-info">{sel.fecha_comercial}</span>}
               {sel.promo_propuesta && <span className="rounded bg-warning/20 px-2 py-0.5">Promo propuesta</span>}

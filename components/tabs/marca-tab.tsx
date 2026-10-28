@@ -61,7 +61,14 @@ const SECTIONS: { title: string; fields: FieldDef[] }[] = [
   {
     title: 'Productos y precios',
     fields: [
-      { path: 'productos_resumen.total', label: 'Cantidad de productos', type: 'number' },
+      {
+        path: 'productos_resumen.cantidad',
+        label: 'Cantidad de artículos',
+        type: 'select',
+        options: ['Menos de 20', '20 a 100', '100 a 500', 'Más de 500'].map((v) => ({ value: v, label: v })),
+        hint: 'Si subís el catálogo se cuenta solo',
+      },
+      { path: 'productos_resumen.descripcion', label: 'Productos principales', type: 'textarea' },
       { path: 'productos_resumen.categorias', label: 'Categorías', type: 'list', hint: 'Separadas por coma' },
       { path: 'precios_en_publicaciones', label: 'Precios en publicaciones', type: 'select', options: PRECIOS },
       {
@@ -114,7 +121,18 @@ const SECTIONS: { title: string; fields: FieldDef[] }[] = [
   {
     title: 'Capacidad de producción',
     fields: [
-      { path: 'capacidad.piezas_por_semana', label: 'Piezas por semana', type: 'number' },
+      {
+        path: 'capacidad.historias_por_dia',
+        label: 'Historias por día',
+        type: 'select',
+        options: [
+          { value: '0', label: 'No sube historias' },
+          { value: '2', label: '1 o 2 por día' },
+          { value: '4', label: '3 a 5 por día' },
+          { value: '6', label: 'Más de 5 por día' },
+        ],
+      },
+      { path: 'capacidad.piezas_por_semana', label: 'Posts o reels por semana', type: 'number' },
       { path: 'capacidad.formatos_posibles', label: 'Formatos posibles', type: 'list', hint: 'Separados por coma' },
       { path: 'restricciones', label: 'Restricciones', type: 'list', hint: 'Una por línea o separadas por coma' },
     ],
@@ -132,7 +150,7 @@ function isEmpty(v: unknown) {
 function display(v: unknown, f: FieldDef) {
   if (isEmpty(v)) return null
   if (f.type === 'bool') return v ? 'Sí' : 'No'
-  if (f.type === 'select') return f.options?.find((o) => o.value === v)?.label ?? String(v)
+  if (f.type === 'select') return f.options?.find((o) => o.value === String(v))?.label ?? String(v)
   if (Array.isArray(v)) return v.join(', ')
   return String(v)
 }
@@ -259,10 +277,10 @@ export function MarcaTab() {
       <div className="mx-auto flex h-full max-w-md flex-col items-center justify-center gap-3 p-8 text-center">
         <h1 className="text-lg font-semibold">Tu Ficha todavía no existe</h1>
         <p className="text-sm text-muted-foreground text-pretty">
-          Completá el arranque en el Copiloto y la armamos con lo que cargues y lo que contes.
+          Completá el arranque con Marky y la armamos con lo que cargues y lo que contes.
         </p>
         <Button nativeButton={false} render={<Link href={`/marca/${brandId}/copiloto`} />}>
-          Ir al Copiloto
+          Ir a Marky
         </Button>
       </div>
     )

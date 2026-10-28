@@ -25,7 +25,14 @@ export interface SkeletonAction {
 export interface SkeletonInput {
   start: string // AAAA-MM-DD (lunes)
   end: string // AAAA-MM-DD
+  /** Posts, carruseles y reels por semana. */
   piezasPorSemana: number
+  /**
+   * Historias por día. Van aparte: una pauta por semana con los temas de las historias,
+   * sin contar en el tope de piezas. Si no se sabe (undefined), las historias rotan
+   * dentro de las piezas como antes.
+   */
+  historiasPorDia?: number
   formatos: string[]
   socialChannels: string[] // ej. ['Instagram', 'TikTok']
   products: SkeletonProduct[]
@@ -48,6 +55,8 @@ export interface SkeletonItem {
   producto: string | null
   fecha_comercial: string | null
   muestra_precio: boolean
+  /** Pauta semanal de historias: cuántas por día sube el negocio. */
+  historias_por_dia?: number
   /** Texto ya resuelto por código (acciones de visibilidad). */
   idea?: string
   porque?: string
@@ -128,9 +137,11 @@ export function buildSkeleton(i: SkeletonInput): Skeleton {
   const canPush = (p: SkeletonProduct) => stock[p.name] !== 'bajo' || (!!p.push && (p.stock ?? 0) >= 5)
   const pushable = i.products.filter((p) => !p.excluded && canPush(p)).sort((a, b) => rank(a) - rank(b))
 
-  const formatos = (i.formatos.filter((f) => (CONTENT_FORMATS as string[]).includes(f)) as Formato[]).length
-    ? (i.formatos.filter((f) => (CONTENT_FORMATS as string[]).includes(f)) as Formato[])
-    : CONTENT_FORMATS
+  // Con historias por día definidas, las historias salen de la rotación de piezas (van aparte).
+  const separateStories = typeof i.historiasPorDia === 'number'
+  const allowed = separateStories ? CONTENT_FORMATS.filter((f) => f !== 'historia') : CONTENT_FORMATS
+  const chosen = i.formatos.filter((f) => (allowed as string[]).includes(f)) as Formato[]
+  const formatos = chosen.length ? chosen : allowed
   const channels = i.socialChannels.length ? i.socialChannels : ['Instagram']
 
   const items: SkeletonItem[] = []
@@ -154,6 +165,22 @@ export function buildSkeleton(i: SkeletonInput): Skeleton {
         muestra_precio: showsPrice(i.precios, formato),
       })
       n++
+    }
+    // Pauta de historias de la semana (no cuenta en el tope de piezas).
+    const stories = i.historiasPorDia ?? 0
+    const monday = addDays(i.start, w * 7)
+    if (separateStories && stories > 0 && monday <= i.end && items.length < MAX_PIECES) {
+      const active = campanas.map((c, idx) => ({ c, idx })).filter(({ c }) => c.inicio <= monday && monday <= c.fin)
+      items.push({
+        campana: active.length ? active[w % active.length].idx : campanas.length ? campanas.length - 1 : -1,
+        fecha: monday,
+        canal: channels[0],
+        formato: 'historia',
+        producto: pushable.length ? pushable[(w + 1) % pushable.length].name : null,
+        fecha_comercial: null,
+        muestra_precio: showsPrice(i.precios, 'historia'),
+        historias_por_dia: stories,
+      })
     }
   }
 

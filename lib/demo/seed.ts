@@ -64,7 +64,7 @@ const FICHA = {
     preocupaciones_compra: ['Que el café llegue fresco', 'Saber cómo prepararlo'],
   },
   identidad_visual: { colores: [{ hex: '#3B2A1F', uso: 'texto y logo' }, { hex: '#F28C38', uso: 'acento' }], tipografias: ['Outfit'], estilo: 'Cálido, fotos con luz natural' },
-  capacidad: { piezas_por_semana: 3, formatos_posibles: ['post', 'historia', 'reel', 'carrusel'] },
+  capacidad: { piezas_por_semana: 3, historias_por_dia: 2, formatos_posibles: ['post', 'historia', 'reel', 'carrusel'] },
   restricciones: ['No publicar descuentos de más del 15 %'],
   missing_inputs: [],
   assumptions: [],
@@ -75,7 +75,7 @@ const FICHA_PATHS = [
   'productos_resumen.total', 'productos_resumen.categorias', 'precios_en_publicaciones', 'posicionamiento_precio',
   'compite_por', 'beneficios_comunicables', 'comunicacion.trato', 'comunicacion.tono', 'comunicacion.frases_si',
   'comunicacion.frases_no', 'publico.actual', 'publico.deseado', 'publico.preocupaciones_compra',
-  'identidad_visual.estilo', 'identidad_visual.tipografias', 'capacidad.piezas_por_semana', 'capacidad.formatos_posibles', 'restricciones',
+  'identidad_visual.estilo', 'identidad_visual.tipografias', 'capacidad.piezas_por_semana', 'capacidad.historias_por_dia', 'capacidad.formatos_posibles', 'restricciones',
 ]
 const INFERRED = new Set(['marca.historia', 'identidad_visual.estilo', 'publico.actual'])
 
@@ -321,6 +321,7 @@ function calendario(start: string, d1: string, d2: string, fichaPrecios: string,
     start,
     end: d2,
     piezasPorSemana: 3,
+    historiasPorDia: 2,
     formatos: FICHA.capacidad.formatos_posibles,
     socialChannels: ['Instagram'],
     products: PRODUCTS.map((p) => ({ name: p.name, stock: p.stock, is_star: p.is_star, push: p.push, excluded: false })),
@@ -333,9 +334,12 @@ function calendario(start: string, d1: string, d2: string, fichaPrecios: string,
     precios: fichaPrecios as any,
   })
   const used: Record<string, number> = {}
+  let storyWeek = -1
   const items = sk.items.map((it, idx) => {
     let text = { idea: it.idea ?? '', copy: '', porque: it.porque ?? '' }
-    if (it.campana >= 0) {
+    if (it.historias_por_dia) {
+      text = STORY_WEEKS[(storyWeek = (storyWeek + 1) % STORY_WEEKS.length)]
+    } else if (it.campana >= 0) {
       const pool = IDEAS[it.producto ?? ''] ?? IDEAS['Blend Ombú 250 g']
       const k = (used[it.producto ?? ''] = (used[it.producto ?? ''] ?? -1) + 1)
       text = pool[k % pool.length]
@@ -351,6 +355,7 @@ function calendario(start: string, d1: string, d2: string, fichaPrecios: string,
       formato: it.formato,
       producto: it.producto,
       fecha_comercial: it.fecha_comercial,
+      ...(it.historias_por_dia ? { historias_por_dia: it.historias_por_dia } : {}),
       ...text,
       muestra_precio: it.muestra_precio,
       promo_propuesta: false,
@@ -370,6 +375,12 @@ function calendario(start: string, d1: string, d2: string, fichaPrecios: string,
     missing_inputs: [],
   }
 }
+
+const STORY_WEEKS = [
+  { idea: 'Historias de la semana: el martes de tueste en vivo, una encuesta sobre cómo toman el café y el jueves un "detrás del mostrador".', copy: '¿Cómo tomás el café en casa? Votá y el viernes te contamos el molido ideal.', porque: 'Las historias sostienen la cercanía que destacan 4 de 8 reseñas, sin el trabajo de un post.' },
+  { idea: 'Historias de la semana: cajita de preguntas sobre cafeteras, armado de un box en vivo y precios del box en historia.', copy: '¿Tenés dudas con tu cafetera? Preguntanos acá.', porque: 'Los clientes valoran el asesoramiento y el box es el producto a impulsar.' },
+  { idea: 'Historias de la semana: recomendación de origen, reposteo de clientes con su café y recordatorio de envíos por WhatsApp.', copy: 'Si te llegó tu café, etiquetanos y lo compartimos.', porque: 'Mostrar clientes reales refuerza la confianza y suma alcance en Instagram.' },
+]
 
 const SCRIPT = {
   gancho: '¿Tu café en casa no sale como el de la cafetería? Es el molido.',

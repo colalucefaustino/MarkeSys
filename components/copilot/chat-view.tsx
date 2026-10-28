@@ -159,29 +159,144 @@ function ToolPart({ part, isLast }: { part: any; isLast: boolean }) {
   return null
 }
 
-/** Pregunta fija del Copiloto: botones que guardan la respuesta sin pasar por la IA. */
+/** Pregunta fija de Marky: se responde tocando, escribiendo o confirmando, sin pasar por la IA. */
 function ScriptedCard() {
-  const { scriptedStep: step, answerScripted, answeringScripted, busy } = useCopilot()
+  const { scriptedStep: step, answerScripted, busy, scriptedHint } = useCopilot()
+  const [selected, setSelected] = useState<string[]>([])
+  const [custom, setCustom] = useState<string[]>([])
+  const [text, setText] = useState('')
+  const [changing, setChanging] = useState(false)
+
+  // Cada pregunta nueva arranca limpia.
+  const stepId = step?.id
+  useEffect(() => {
+    setSelected([])
+    setCustom([])
+    setText('')
+    setChanging(false)
+  }, [stepId])
+
   if (!step) return null
+  const disabled = busy
+  const chip = (on: boolean) =>
+    cn(
+      'rounded-full border bg-card px-3 py-1.5 text-sm transition-colors hover:bg-accent disabled:opacity-50',
+      on && 'border-primary bg-accent text-accent-foreground',
+    )
+  const answer = (a: Parameters<typeof answerScripted>[1]) => void answerScripted(step, a)
+
+  function addCustom() {
+    const items = text.split(/[\n,;]/).map((x) => x.trim()).filter(Boolean)
+    if (!items.length) return
+    setCustom((c) => [...c, ...items.filter((x) => !c.includes(x))])
+    setText('')
+  }
+  function submitMulti() {
+    const pending = text.trim()
+    answer({ values: selected, text: [...custom, ...(pending ? [pending] : [])].join(', ') })
+  }
+
+  let body: React.ReactNode
+  if (step.handoff) {
+    body = (
+      <div className="mt-2">
+        <Button size="sm" disabled={disabled} onClick={() => answer({})}>
+          {step.handoff.label}
+        </Button>
+      </div>
+    )
+  } else if (step.deduced && !changing) {
+    body = (
+      <div className="mt-2 space-y-2">
+        <p className="rounded-lg bg-warning/15 px-3 py-2">
+          Por lo que vi, entendí: <b>{step.deduced}</b>. ¿Es así?
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" className={chip(false)} disabled={disabled} onClick={() => answer({ action: 'confirm' })}>
+            Sí, es así
+          </button>
+          <button type="button" className={chip(false)} disabled={disabled} onClick={() => setChanging(true)}>
+            Cambiar
+          </button>
+        </div>
+      </div>
+    )
+  } else {
+    const multi = step.mode === 'multi'
+    const canSubmitMulti = selected.length > 0 || custom.length > 0 || !!text.trim()
+    body = (
+      <div className="mt-2 space-y-2">
+        {(step.options.length > 0 || custom.length > 0) && (
+          <div className="flex flex-wrap gap-2">
+            {step.options.map((o) => {
+              const on = selected.includes(o)
+              return (
+                <button
+                  key={o}
+                  type="button"
+                  disabled={disabled}
+                  aria-pressed={multi ? on : undefined}
+                  onClick={() => (multi ? setSelected((s) => (on ? s.filter((x) => x !== o) : [...s, o])) : answer({ values: [o] }))}
+                  className={chip(on)}
+                >
+                  {on && <Check className="mr-1 inline size-3.5" />}
+                  {o}
+                </button>
+              )
+            })}
+            {custom.map((c) => (
+              <button key={c} type="button" className={chip(true)} disabled={disabled} onClick={() => setCustom((cs) => cs.filter((x) => x !== c))} aria-label={`Quitar ${c}`}>
+                <Check className="mr-1 inline size-3.5" />
+                {c}
+              </button>
+            ))}
+          </div>
+        )}
+        {step.allowText && (
+          <form
+            className="flex gap-2"
+            onSubmit={(e) => {
+              e.preventDefault()
+              if (multi) addCustom()
+              else if (text.trim()) answer({ values: [], text })
+            }}
+          >
+            <input
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              disabled={disabled}
+              placeholder={step.textPlaceholder ?? 'Escribí tu respuesta'}
+              aria-label={step.textPlaceholder ?? 'Tu respuesta'}
+              className="h-9 min-w-0 flex-1 rounded-lg border bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            />
+            <Button type="submit" size="sm" variant="outline" className="h-9" disabled={disabled || !text.trim()}>
+              {multi ? 'Agregar' : 'Enviar'}
+            </Button>
+          </form>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {multi && (
+            <Button size="sm" disabled={disabled || !canSubmitMulti} onClick={submitMulti}>
+              Listo
+            </Button>
+          )}
+          {step.skipLabel && (
+            <Button size="sm" variant="ghost" disabled={disabled} onClick={() => answer({ action: 'skip' })}>
+              {step.skipLabel}
+            </Button>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col items-start">
-      <div className="max-w-[92%] rounded-2xl rounded-bl-md border bg-card px-3.5 py-2 text-sm leading-relaxed">
+      <div className="w-full max-w-[92%] rounded-2xl rounded-bl-md border bg-card px-3.5 py-2 text-sm leading-relaxed">
         <p>{step.question}</p>
         <p className="mt-1 text-xs text-muted-foreground">{step.why}</p>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {step.options.map((o, i) => (
-            <button
-              key={o.label}
-              type="button"
-              disabled={answeringScripted || busy}
-              onClick={() => void answerScripted(step, i)}
-              className="rounded-full border bg-card px-3 py-1.5 text-sm transition-colors hover:bg-accent disabled:opacity-50"
-            >
-              {o.label}
-            </button>
-          ))}
-          {answeringScripted && <Loader2 className="size-4 self-center animate-spin text-muted-foreground" aria-label="Guardando" />}
-        </div>
+        {body}
+        {scriptedHint && <p className="mt-2 text-xs text-destructive">{scriptedHint}</p>}
       </div>
     </div>
   )
@@ -234,7 +349,7 @@ function Bubble({ m, isLast }: { m: UIMessage; isLast: boolean }) {
 }
 
 export function ChatView({
-  placeholder = 'Escribile al Copiloto…',
+  placeholder = 'Escribile a Marky…',
   disabled,
   className,
   emptyHint,
@@ -244,13 +359,13 @@ export function ChatView({
   className?: string
   emptyHint?: string
 }) {
-  const { messages, busy, send, stop, voice, conversation, setConversation, scriptedStep } = useCopilot()
+  const { messages, busy, send, stop, voice, conversation, setConversation, scriptedStep, answerTyped, answeringScripted } = useCopilot()
   const { brandId } = useBrand()
   // En la marca de ejemplo el chat es de solo lectura: se ve la conversación, no se escribe.
   const demo = isDemoBrand(brandId)
   if (demo) {
     disabled = true
-    placeholder = 'Es la marca de ejemplo: probá el Copiloto con tu negocio'
+    placeholder = 'Es la marca de ejemplo: probá Marky con tu negocio'
   }
   const [input, setInput] = useState('')
   const endRef = useRef<HTMLDivElement>(null)
@@ -261,6 +376,11 @@ export function ChatView({
 
   function submit() {
     if (!input.trim() || busy || disabled) return
+    // Con una pregunta fija abierta, lo que se escribe la responde (no va a la IA).
+    if (!pendingTool && answerTyped(input)) {
+      setInput('')
+      return
+    }
     send(input, 'texto')
     setInput('')
   }
@@ -301,6 +421,11 @@ export function ChatView({
             <Bubble key={m.id} m={m} isLast={i === lastAssistantIdx} />
           ))}
           {!busy && !pendingTool && <ScriptedCard />}
+          {answeringScripted && (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Loader2 className="size-3.5 animate-spin" /> Guardando…
+            </div>
+          )}
           {busy && (
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Loader2 className="size-3.5 animate-spin" /> Pensando…
@@ -331,7 +456,7 @@ export function ChatView({
               disabled={disabled}
               rows={1}
               placeholder={placeholder}
-              aria-label="Mensaje al Copiloto"
+              aria-label="Mensaje a Marky"
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {

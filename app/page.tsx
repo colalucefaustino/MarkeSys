@@ -33,7 +33,7 @@ const STEPS = [
 const PRINCIPLES = [
   {
     title: 'Te pregunta de a una cosa',
-    text: 'El Copiloto te guía con opciones para tocar y te explica para qué necesita cada dato. También le podés hablar.',
+    text: 'Marky te guía con opciones para tocar y te explica para qué necesita cada dato. También le podés hablar.',
   },
   {
     title: 'No inventa nada',
@@ -103,7 +103,7 @@ export default function Landing() {
         <section id="como-funciona" className="mx-auto max-w-6xl scroll-mt-6 px-4 py-20 sm:px-6 lg:py-28">
           <h2 className="max-w-xl text-3xl font-semibold tracking-[-0.02em] sm:text-4xl">Cómo funciona</h2>
           <p className="mt-3 max-w-xl text-muted-foreground">
-            Cargás tu web o tu catálogo y el Copiloto te acompaña en cuatro etapas. Cada una se apoya en la anterior.
+            Cargás tu web o tu catálogo y Marky te acompaña en cuatro etapas. Cada una se apoya en la anterior.
           </p>
           <ol className="relative mt-12 grid gap-10 md:grid-cols-4 md:gap-8">
             <span aria-hidden className="absolute top-5 right-[12%] left-5 hidden h-px bg-border md:block" />

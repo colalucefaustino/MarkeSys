@@ -7,7 +7,7 @@ import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls, type
 import { toast } from 'sonner'
 import { useVoice } from '@/lib/voice/use-voice'
 import { useBrand } from '@/components/brand/brand-context'
-import type { ScriptedStep } from '@/lib/copilot/scripted'
+import { answerFromTyped, type ScriptedAnswer, type ScriptedStep } from '@/lib/copilot/scripted-shared'
 
 type InputMode = 'texto' | 'voz' | 'chip'
 
@@ -24,8 +24,10 @@ interface ChatCtx {
   listen: (text: string) => void
   /** Próxima pregunta fija (con botones, sin IA), o null. */
   scriptedStep: ScriptedStep | null
-  answerScripted: (step: ScriptedStep, optionIndex: number) => Promise<void>
+  answerScripted: (step: ScriptedStep, answer: ScriptedAnswer) => Promise<void>
+  answerTyped: (text: string) => boolean
   answeringScripted: boolean
+  scriptedHint: string | null
 }
 
 const Ctx = createContext<ChatCtx | null>(null)
@@ -71,7 +73,7 @@ export function ChatProvider({ initialMessages, children }: { initialMessages: U
     onFinish: () => {
       void refresh()
     },
-    onError: () => toast.error('El Copiloto no pudo responder. Probá de nuevo en un momento.'),
+    onError: () => toast.error('Marky no pudo responder. Probá de nuevo en un momento.'),
   })
 
   const send = useCallback(
@@ -104,39 +106,71 @@ export function ChatProvider({ initialMessages, children }: { initialMessages: U
     [voice],
   )
 
-  // Preguntas fijas: se guardan sin IA. Las opciones que necesitan conversación
-  // (ej. "Sí, te cuento") se mandan a la IA y la pregunta se saltea en esta sesión.
+  // Preguntas fijas: se guardan sin IA. Mientras se guarda la respuesta y se actualiza
+  // la lista, la tarjeta no se muestra (si no, la misma pregunta parpadea un instante).
   const [dismissed, setDismissed] = useState<string[]>([])
+  const [answeredIds, setAnsweredIds] = useState<string[]>([])
   const [answeringScripted, setAnsweringScripted] = useState(false)
-  const scriptedStep = (data.scripted ?? []).find((st) => !dismissed.includes(st.id)) ?? null
+  const [scriptedHint, setScriptedHint] = useState<string | null>(null)
+  const scriptedStep = answeringScripted
+    ? null
+    : ((data.scripted ?? []).find((st) => !dismissed.includes(st.id) && !answeredIds.includes(st.id)) ?? null)
 
   const answerScripted = useCallback(
-    async (step: ScriptedStep, optionIndex: number) => {
-      const option = step.options[optionIndex]
-      if (!option) return
-      if (option.send) {
+    async (step: ScriptedStep, answer: ScriptedAnswer) => {
+      setScriptedHint(null)
+      if (step.handoff) {
         setDismissed((d) => [...d, step.id])
-        send(option.send, 'chip')
+        send(step.handoff.send, 'chip')
         return
       }
+      const now = Date.now()
+      const ids: [string, string] = [`fija-${step.id}-q-${now}`, `fija-${step.id}-a-${now}`]
+      const label =
+        answer.action === 'confirm'
+          ? 'Sí, es así'
+          : answer.action === 'skip'
+            ? (step.skipLabel ?? 'Saltear')
+            : [...(answer.values ?? []), ...(answer.text?.trim() ? [answer.text.trim()] : [])].join(', ')
+      const optimistic: UIMessage[] = [
+        { id: ids[0], role: 'assistant', parts: [{ type: 'text', text: `${step.question}\n${step.why}` }] },
+        { id: ids[1], role: 'user', parts: [{ type: 'text', text: label }] },
+      ]
       setAnsweringScripted(true)
+      chat.setMessages((prev) => [...prev, ...optimistic])
       try {
         const res = await fetch('/api/copilot/answer', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ brandId, stepId: step.id, optionIndex }),
+          body: JSON.stringify({ brandId, stepId: step.id, ...answer, messageIds: ids }),
         })
-        if (!res.ok) throw new Error()
-        const { messages } = (await res.json()) as { messages: UIMessage[] }
-        chat.setMessages((prev) => [...prev, ...messages])
+        if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? 'No pude guardar tu respuesta.')
+        setAnsweredIds((a) => [...a, step.id])
         await refresh()
-      } catch {
-        toast.error('No pude guardar tu respuesta. Probá de nuevo.')
+      } catch (e) {
+        chat.setMessages((prev) => prev.filter((m) => !ids.includes(m.id)))
+        toast.error(e instanceof Error ? e.message : 'No pude guardar tu respuesta. Probá de nuevo.')
       } finally {
         setAnsweringScripted(false)
       }
     },
     [brandId, chat, refresh, send],
+  )
+
+  /** Si hay una pregunta fija abierta, lo que el dueño escribe la responde. Devuelve true si lo tomó. */
+  const answerTyped = useCallback(
+    (text: string) => {
+      const step = scriptedStep
+      if (!step || step.handoff) return false
+      const a = answerFromTyped(step, text)
+      if (!a) {
+        setScriptedHint('Para esta pregunta tocá una de las opciones.')
+        return true
+      }
+      void answerScripted(step, a)
+      return true
+    },
+    [scriptedStep, answerScripted],
   )
 
   const listen = useCallback(
@@ -186,7 +220,9 @@ export function ChatProvider({ initialMessages, children }: { initialMessages: U
         listen,
         scriptedStep,
         answerScripted,
+        answerTyped,
         answeringScripted,
+        scriptedHint,
       }}
     >
       {children}

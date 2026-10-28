@@ -16,7 +16,7 @@ export type TabKey =
 export type TabStatus = 'bloqueada' | 'en_curso' | 'esperando' | 'aprobada' | 'desactualizada'
 
 export const TAB_GROUPS: { label: string | null; tools?: boolean; tabs: { key: TabKey; label: string; icon: string }[] }[] = [
-  { label: null, tabs: [{ key: 'copiloto', label: 'Copiloto', icon: 'sparkles' }] },
+  { label: null, tabs: [{ key: 'copiloto', label: 'Marky', icon: 'sparkles' }] },
   {
     label: 'Diagnóstico',
     tabs: [

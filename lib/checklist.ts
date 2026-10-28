@@ -17,8 +17,11 @@ export function computeChecklist(d: Dossier): ChecklistItem[] {
   const prov = provenanceMap(d)
   const answered = (path: string) => {
     const p = prov[`ficha.${path}`]
-    if (p && p.origin !== 'pendiente') return true
+    // Confirmado por el dueño cuenta aunque sea una lista vacía (ej. "ningún beneficio").
+    if (p?.origin === 'confirmado') return true
     const v = getPath(ficha, path)
+    if (Array.isArray(v)) return v.length > 0
+    if (p && p.origin !== 'pendiente') return true
     return v !== undefined && v !== null && v !== ''
   }
   const hasMedia = (...kinds: string[]) => d.media.some((m) => kinds.includes(m.kind))
@@ -42,7 +45,18 @@ export function computeChecklist(d: Dossier): ChecklistItem[] {
       uploadKind: 'catalogo',
       hint: 'Catálogo, web o contados en el chat',
     },
+    { id: 'rubro', label: 'Qué vendés', level: 'obligatorio', done: answered('marca.rubro') },
     { id: 'tamano', label: 'Tamaño del negocio', level: 'obligatorio', done: !!d.brand?.size_segment },
+    { id: 'publico', label: 'A quién le vendés', level: 'obligatorio', done: answered('publico.actual') },
+    { id: 'diferencial', label: 'Por qué te eligen', level: 'obligatorio', done: answered('marca.diferencial') },
+    { id: 'canales', label: 'Dónde vendés', level: 'obligatorio', done: answered('marca.canales_venta') },
+    { id: 'nivel_precio', label: 'Nivel de precios', level: 'obligatorio', done: answered('posicionamiento_precio') },
+    {
+      id: 'comunicacion',
+      label: 'Cómo les hablás',
+      level: 'obligatorio',
+      done: answered('comunicacion.trato') && answered('comunicacion.tono'),
+    },
     {
       id: 'precios',
       label: 'Precios en publicaciones',
@@ -57,9 +71,9 @@ export function computeChecklist(d: Dossier): ChecklistItem[] {
     },
     {
       id: 'piezas',
-      label: 'Piezas por semana',
+      label: 'Historias y posts por semana',
       level: 'obligatorio',
-      done: answered('capacidad.piezas_por_semana'),
+      done: answered('capacidad.piezas_por_semana') && answered('capacidad.historias_por_dia'),
     },
     {
       id: 'stock',
@@ -80,6 +94,12 @@ export function computeChecklist(d: Dossier): ChecklistItem[] {
       label: 'Instagram o TikTok',
       level: 'recomendado',
       done: hasChannel('instagram', 'tiktok'),
+    },
+    {
+      id: 'beneficios',
+      label: 'Beneficios',
+      level: 'recomendado',
+      done: answered('beneficios_comunicables'),
     },
     {
       id: 'competidores',

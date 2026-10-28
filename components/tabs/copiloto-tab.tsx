@@ -75,7 +75,7 @@ function ArranquePanel() {
       <div className="space-y-1.5">
         <h1 className="text-2xl font-semibold text-balance">Contanos de tu negocio</h1>
         <p className="text-sm text-muted-foreground text-pretty">
-          Con estos datos básicos el sistema empieza a leer tu web o tu catálogo. Después el Copiloto te hace unas pocas preguntas para completar el resto.
+          Con estos datos básicos el sistema empieza a leer tu web o tu catálogo. Después Marky te hace unas pocas preguntas para completar el resto.
         </p>
       </div>
 
@@ -122,7 +122,7 @@ function ArranquePanel() {
         <div className="flex items-start gap-2">
           <Checkbox id="none" checked={none} onCheckedChange={(v) => setNone(v === true)} className="mt-0.5" />
           <Label htmlFor="none" className="font-normal leading-snug">
-            No tengo web ni catálogo. Prefiero contárselo al Copiloto.
+            No tengo web ni catálogo. Prefiero contárselo a Marky.
           </Label>
         </div>
       </div>
@@ -259,7 +259,7 @@ function ChecklistPanel() {
       <Button className="mt-auto" disabled={!ready} onClick={() => router.push(`/marca/${brandId}/marca`)}>
         Revisar mi Ficha <ArrowRight />
       </Button>
-      {!ready && <p className="-mt-2 text-center text-xs text-muted-foreground">Completá lo obligatorio con el Copiloto.</p>}
+      {!ready && <p className="-mt-2 text-center text-xs text-muted-foreground">Completá lo obligatorio con Marky.</p>}
     </aside>
   )
 }
@@ -285,7 +285,7 @@ export function CopilotoTab() {
       <div className="flex min-h-0 flex-1 flex-col">
         <ChatView
           placeholder="Respondé acá o tocá el micrófono…"
-          emptyHint={a1Settled ? 'El Copiloto está por escribirte…' : 'Estoy leyendo tu información. En unos segundos arrancamos.'}
+          emptyHint={a1Settled ? 'Marky está por escribirte…' : 'Estoy leyendo tu información. En unos segundos arrancamos.'}
         />
       </div>
       <ChecklistPanel />

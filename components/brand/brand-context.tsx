@@ -4,7 +4,7 @@ import { createContext, useContext, type ReactNode } from 'react'
 import useSWR from 'swr'
 import type { BrandState } from '@/lib/tabs'
 import type { ChecklistItem } from '@/lib/checklist'
-import type { ScriptedStep } from '@/lib/copilot/scripted'
+import type { ScriptedStep } from '@/lib/copilot/scripted-shared'
 
 export interface RunSummary {
   id: string

@@ -84,7 +84,7 @@ export function DashboardTab() {
           <div className="flex items-center justify-between gap-2">
             <h2 className="font-semibold">Qué mejorar</h2>
             <Button size="sm" disabled={!!busy} onClick={() => run('ins', async () => { await postJSON('/api/insights', { brandId }); await mutate() })}>
-              {busy === 'ins' && <Loader2 className="animate-spin" />} {insights ? 'Analizar de nuevo' : 'Analizar con el Copiloto'}
+              {busy === 'ins' && <Loader2 className="animate-spin" />} {insights ? 'Analizar de nuevo' : 'Analizar con Marky'}
             </Button>
           </div>
           {insights ? insights.map((h: any) => (

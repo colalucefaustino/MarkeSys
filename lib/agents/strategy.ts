@@ -235,7 +235,7 @@ export async function runA5(brandId: string, runId: string, progress: RunProgres
   ])
   const { d, text } = await context(brandId)
   const objectives = d.objectives.filter((o) => o.deadline)
-  if (!objectives.length) throw new Error('Faltan objetivos con fecha. Pedíselos al Copiloto.')
+  if (!objectives.length) throw new Error('Faltan objetivos con fecha. Pedíselos a Marky.')
   const ficha = (d.sections.ficha?.data ?? {}) as any
   const estr = (d.sections.estrategia?.data ?? {}) as any
   const vis = (d.sections.visibilidad?.data ?? {}) as any
@@ -251,6 +251,7 @@ export async function runA5(brandId: string, runId: string, progress: RunProgres
     start,
     end,
     piezasPorSemana: cap,
+    historiasPorDia: ficha?.capacidad?.historias_por_dia != null && ficha.capacidad.historias_por_dia !== '' ? Number(ficha.capacidad.historias_por_dia) : undefined,
     formatos: ficha?.capacidad?.formatos_posibles ?? [],
     socialChannels: [...new Set(social)],
     products: d.products.map((p) => ({ name: String(p.name), stock: p.stock ?? null, is_star: p.is_star, push: p.push, excluded: p.excluded })),
@@ -290,7 +291,7 @@ PIEZAS (devolvé una entrada por pieza con su número "n"):
 ${toWrite
   .map(
     ({ it }, k) =>
-      `${k + 1}. ${it.fecha} · ${FMT_LABEL[it.formato] ?? it.formato} en ${it.canal} · campaña ${it.campana}${it.producto ? ` · producto: ${it.producto}` : ''}${it.fecha_comercial ? ` · cerca de ${it.fecha_comercial}` : ''}${it.muestra_precio ? ' · puede mostrar precio' : ' · sin precio'}`,
+      `${k + 1}. ${it.fecha} · ${it.historias_por_dia ? `PAUTA DE HISTORIAS DE LA SEMANA (sube ${it.historias_por_dia} por día: proponé en "idea" los temas de las historias de lunes a domingo, en una o dos líneas)` : FMT_LABEL[it.formato] ?? it.formato} en ${it.canal} · campaña ${it.campana}${it.producto ? ` · producto: ${it.producto}` : ''}${it.fecha_comercial ? ` · cerca de ${it.fecha_comercial}` : ''}${it.muestra_precio ? ' · puede mostrar precio' : ' · sin precio'}`,
   )
   .join('\n')}
 
@@ -318,6 +319,7 @@ ${text}`,
       formato: it.formato,
       producto: it.producto,
       fecha_comercial: it.fecha_comercial,
+      ...(it.historias_por_dia ? { historias_por_dia: it.historias_por_dia } : {}),
       idea: it.idea ?? written?.idea ?? 'Idea pendiente: pedila con "otra idea"',
       copy: written?.copy ?? '',
       porque: it.porque ?? written?.porque ?? '',

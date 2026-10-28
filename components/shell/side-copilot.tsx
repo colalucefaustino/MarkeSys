@@ -21,12 +21,12 @@ export function SideCopilot() {
           'hidden shrink-0 flex-col border-l bg-background transition-[width] xl:flex',
           open ? 'w-[380px]' : 'w-12',
         )}
-        aria-label="Copiloto"
+        aria-label="Marky"
       >
         <div className="flex h-12 items-center justify-between border-b bg-card px-3">
           {open && (
             <span className="flex items-center gap-2 text-sm font-medium">
-              <Sparkles className="size-4 text-primary" /> Copiloto
+              <Sparkles className="size-4 text-primary" /> Marky
             </span>
           )}
           <Button
@@ -34,7 +34,7 @@ export function SideCopilot() {
             size="icon"
             className="ml-auto size-8"
             onClick={() => setOpen((v) => !v)}
-            aria-label={open ? 'Cerrar el Copiloto' : 'Abrir el Copiloto'}
+            aria-label={open ? 'Cerrar Marky' : 'Abrir Marky'}
           >
             {open ? <PanelRightClose /> : <PanelRightOpen />}
           </Button>
@@ -47,14 +47,14 @@ export function SideCopilot() {
           <SheetTrigger
             render={
               <Button className="fixed bottom-4 right-4 z-30 rounded-full shadow-lg" size="lg">
-                <Sparkles /> Copiloto
+                <Sparkles /> Marky
               </Button>
             }
           />
           <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-md">
             <SheetHeader className="border-b">
-              <SheetTitle>Copiloto</SheetTitle>
-              <SheetDescription className="sr-only">Chat con el Copiloto</SheetDescription>
+              <SheetTitle>Marky</SheetTitle>
+              <SheetDescription className="sr-only">Chat con Marky</SheetDescription>
             </SheetHeader>
             <ChatView />
           </SheetContent>

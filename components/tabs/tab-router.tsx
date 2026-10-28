@@ -28,7 +28,7 @@ type TabKey =
   | 'dashboard'
 
 const TITLES: Record<TabKey, string> = {
-  copiloto: 'Copiloto',
+  copiloto: 'Marky',
   marca: 'Marca',
   visibilidad: 'Visibilidad digital',
   percepcion: 'Percepción',
@@ -47,7 +47,7 @@ function Notice({ icon, title, text, brandId }: { icon: React.ReactNode; title: 
       <h1 className="text-lg font-semibold text-balance">{title}</h1>
       <p className="text-sm text-muted-foreground text-pretty">{text}</p>
       <Button variant="outline" nativeButton={false} render={<Link href={`/marca/${brandId}/copiloto`} />}>
-        Volver al Copiloto
+        Volver a Marky
       </Button>
     </div>
   )

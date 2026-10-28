@@ -17,8 +17,8 @@ interface Step {
 const STEPS: Step[] = [
   {
     tab: 'copiloto',
-    title: 'Todo arranca con el Copiloto',
-    text: 'El dueño carga su web o su catálogo y el Copiloto le pregunta lo que falta, de a una cosa por vez. Las preguntas fijas son botones que se guardan sin usar IA; la IA entra cuando el dueño escribe algo libre.',
+    title: 'Todo arranca con Marky',
+    text: 'El dueño carga su web o su catálogo y Marky le pregunta lo que falta, de a una cosa por vez. Las preguntas fijas son botones que se guardan sin usar IA; la IA entra cuando el dueño escribe algo libre.',
   },
   {
     tab: 'marca',
@@ -80,7 +80,7 @@ function writeStored(v: { step: number; open: boolean }) {
   }
 }
 
-/** Crea una marca nueva y lleva al Copiloto para empezar con el negocio propio. */
+/** Crea una marca nueva y lleva a Marky para empezar con el negocio propio. */
 export function useTryOwnBrand() {
   const router = useRouter()
   const [creating, setCreating] = useState(false)
@@ -163,7 +163,7 @@ export function DemoTour() {
           </p>
           <h2 className="mt-1 text-lg font-semibold">Probalo con tu negocio</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Creá tu marca, cargá tu web o tu catálogo y el Copiloto arma tu diagnóstico real. Esta marca de ejemplo queda acá para volver cuando quieras.
+            Creá tu marca, cargá tu web o tu catálogo y Marky arma tu diagnóstico real. Esta marca de ejemplo queda acá para volver cuando quieras.
           </p>
           <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
             <Button variant="ghost" size="sm" onClick={() => go(STEPS.length - 1)}>
