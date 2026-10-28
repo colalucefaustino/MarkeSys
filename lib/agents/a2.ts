@@ -2,7 +2,7 @@ import { generateObject, generateText, stepCountIs } from 'ai'
 import { z } from 'zod'
 import pLimit from 'p-limit'
 import { db } from '@/lib/supabase/server'
-import { MODEL_MAIN, MODEL_FAST, todayISO, searchModel } from '@/lib/ai'
+import { MODEL_MAIN, MODEL_FAST, todayISO, searchModel, FALLBACK_ENABLED, isQuotaError, markGeminiExhausted } from '@/lib/ai'
 import { getDossier, dossierSummary, writeSectionData, ensureDraft } from '@/lib/dossier'
 import type { RunProgress } from '@/lib/agents/runs'
 
@@ -121,10 +121,11 @@ async function serper(path: 'search' | 'places', q: string) {
   })
 }
 
-async function runLlmQuery(q: string, identity: Identity) {
-  const { text, sources } = await withTimeout((signal) =>
+async function askSearchModel(q: string) {
+  const { via, ...search } = searchModel()
+  const result = await withTimeout((signal) =>
     generateText({
-      ...searchModel(),
+      ...search,
       stopWhen: stepCountIs(5),
       abortSignal: signal,
       system:
@@ -132,6 +133,20 @@ async function runLlmQuery(q: string, identity: Identity) {
       prompt: q,
     }),
   )
+  return { ...result, via }
+}
+
+async function runLlmQuery(q: string, identity: Identity) {
+  let answer: Awaited<ReturnType<typeof askSearchModel>>
+  try {
+    answer = await askSearchModel(q)
+  } catch (e) {
+    // Gemini sin cupo: se marca agotado y la misma búsqueda se repite por el Gateway.
+    if (!FALLBACK_ENABLED || !isQuotaError(e)) throw e
+    markGeminiExhausted()
+    answer = await askSearchModel(q)
+  }
+  const { text, sources, via } = answer
   const urls: string[] = []
   for (const s of (sources ?? []) as any[]) if (s?.url) urls.push(String(s.url))
   for (const m of text.matchAll(/https?:\/\/[^\s)\]]+/g)) urls.push(m[0])
@@ -159,7 +174,7 @@ async function runLlmQuery(q: string, identity: Identity) {
     position,
     mentions,
     sources: uniqueUrls.slice(0, 10).map((u) => ({ url: u, domain: hostOf(u) })),
-    raw: { answer: text.slice(0, 3000) },
+    raw: { answer: text.slice(0, 3000), modelo: via },
   }
 }
 

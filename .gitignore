@@ -13,7 +13,8 @@ __v0_jsx-dev-runtime.ts
 # Common ignores
 node_modules
 .next/
-.DS_Storetsconfig.tsbuildinfo
+.DS_Store
+tsconfig.tsbuildinfo
 
 # Documentos internos (no se publican)
 CLAUDE.md
