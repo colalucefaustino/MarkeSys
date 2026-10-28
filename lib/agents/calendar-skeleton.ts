@@ -123,7 +123,10 @@ export function buildSkeleton(i: SkeletonInput): Skeleton {
   // a impulsar y sobrestock.
   const stock = classifyStock(i.products)
   const rank = (p: SkeletonProduct) => (p.push ? 0 : p.is_star ? 1 : stock[p.name] === 'sobrestock' ? 2 : 3)
-  const pushable = i.products.filter((p) => !p.excluded && stock[p.name] !== 'bajo').sort((a, b) => rank(a) - rank(b))
+  // Lo que el dueño marcó "a impulsar" se empuja aunque esté bajo en la comparación,
+  // salvo que de verdad queden menos de 5.
+  const canPush = (p: SkeletonProduct) => stock[p.name] !== 'bajo' || (!!p.push && (p.stock ?? 0) >= 5)
+  const pushable = i.products.filter((p) => !p.excluded && canPush(p)).sort((a, b) => rank(a) - rank(b))
 
   const formatos = (i.formatos.filter((f) => (CONTENT_FORMATS as string[]).includes(f)) as Formato[]).length
     ? (i.formatos.filter((f) => (CONTENT_FORMATS as string[]).includes(f)) as Formato[])
