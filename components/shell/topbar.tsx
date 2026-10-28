@@ -4,12 +4,18 @@ import Link from 'next/link'
 import { Logo } from '@/components/logo'
 import { BrandSwitcher } from '@/components/shell/brand-switcher'
 import { AiStatusPill } from '@/components/shell/ai-status-pill'
+import { Loader2 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { useTryOwnBrand } from '@/components/demo/demo-tour'
+import { isDemoBrand } from '@/lib/demo/constants'
 import { STAGES, stageIndex } from '@/lib/tabs'
 import { useBrand } from '@/components/brand/brand-context'
 import { cn } from '@/lib/utils'
 
 export function Topbar() {
-  const { data } = useBrand()
+  const { data, brandId } = useBrand()
+  const demo = isDemoBrand(brandId)
+  const own = useTryOwnBrand()
   const idx = stageIndex(data.brand.stage)
   const score = data.state.visibilityScore
 
@@ -43,7 +49,16 @@ export function Topbar() {
       </ol>
 
       <div className="ml-auto flex items-center gap-3">
-        <AiStatusPill />
+        {demo ? (
+          <>
+            <span className="hidden rounded-full bg-accent px-2.5 py-1 text-xs font-medium text-accent-foreground md:inline">Marca de ejemplo</span>
+            <Button size="sm" onClick={() => void own.start()} disabled={own.creating}>
+              {own.creating && <Loader2 className="animate-spin" />} Probar con mi negocio
+            </Button>
+          </>
+        ) : (
+          <AiStatusPill />
+        )}
         {score !== null && (
           <span className="rounded-full border px-2.5 py-1 text-xs">
             Visibilidad <strong className="font-semibold">{score}</strong>/100

@@ -10,6 +10,7 @@ import { useCopilot, messageSpeechText } from '@/components/brand/chat-context'
 import { useBrand } from '@/components/brand/brand-context'
 import { UploadCard } from '@/components/copilot/upload-card'
 import { ObjectivesCard } from '@/components/copilot/objectives-card'
+import { isDemoBrand } from '@/lib/demo/constants'
 
 function RichText({ text }: { text: string }) {
   return (
@@ -244,6 +245,13 @@ export function ChatView({
   emptyHint?: string
 }) {
   const { messages, busy, send, stop, voice, conversation, setConversation, scriptedStep } = useCopilot()
+  const { brandId } = useBrand()
+  // En la marca de ejemplo el chat es de solo lectura: se ve la conversación, no se escribe.
+  const demo = isDemoBrand(brandId)
+  if (demo) {
+    disabled = true
+    placeholder = 'Es la marca de ejemplo: probá el Copiloto con tu negocio'
+  }
   const [input, setInput] = useState('')
   const endRef = useRef<HTMLDivElement>(null)
 

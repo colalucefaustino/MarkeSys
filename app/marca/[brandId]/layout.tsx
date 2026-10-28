@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import { notFound } from 'next/navigation'
 import type { UIMessage } from 'ai'
 import { db } from '@/lib/supabase/server'
@@ -7,6 +8,8 @@ import { ChatProvider } from '@/components/brand/chat-context'
 import { Topbar } from '@/components/shell/topbar'
 import { Sidebar, MobileNav } from '@/components/shell/sidebar'
 import { SideCopilot } from '@/components/shell/side-copilot'
+import { DemoTour } from '@/components/demo/demo-tour'
+import { isDemoBrand } from '@/lib/demo/constants'
 
 export const dynamic = 'force-dynamic'
 
@@ -37,6 +40,11 @@ export default async function BrandLayout({
             <SideCopilot />
           </div>
         </div>
+        {isDemoBrand(brandId) && (
+          <Suspense>
+            <DemoTour />
+          </Suspense>
+        )}
       </ChatProvider>
     </BrandProvider>
   )
