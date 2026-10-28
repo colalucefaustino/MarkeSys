@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { generateObject } from 'ai'
 import { db } from '@/lib/supabase/server'
-import { MODEL_FAST } from '@/lib/ai'
+import { MODEL_FAST, friendlyAiError } from '@/lib/ai'
 
 export const maxDuration = 120
 
@@ -28,6 +28,6 @@ Objetivos: ${JSON.stringify(o.data)}`,
     await db().from('insights').insert({ brand_id: brandId, kind: 'ventas', data: object.hallazgos })
     return NextResponse.json({ insights: object.hallazgos })
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : 'No pude analizar' }, { status: 500 })
+    return NextResponse.json({ error: friendlyAiError(e) ?? (e instanceof Error ? e.message : 'No pude analizar') }, { status: 500 })
   }
 }

@@ -32,7 +32,7 @@ export async function GET(req: Request) {
     entorno: process.env.VERCEL_ENV ?? 'local',
     ia: AI_PROVIDER === 'gateway' && process.env.AI_PROVIDER?.trim().toLowerCase() !== 'gateway' ? 'SIN CLAVE (cargá GOOGLE_GENERATIVE_AI_API_KEY y hacé Redeploy)' : AI_PROVIDER,
     gemini: GOOGLE_KEY ? `sí (variable ${GOOGLE_KEY.name})` : 'no encontrada',
-    respaldo_gateway: FALLBACK_ENABLED ? 'activo (si Gemini se queda sin cupo, sigue por el AI Gateway)' : 'apagado',
+    respaldo_gateway: FALLBACK_ENABLED ? 'activo (Gemini principal → Gemini rápido → AI Gateway)' : 'apagado',
     estado_ia: await getAiStatus(),
     ai_provider_forzado: process.env.AI_PROVIDER?.trim() || null,
     variables_visibles: Object.keys(process.env).filter((k) => /GOOGLE|GEMINI|SUPABASE|ELEVEN|SERPER|APIFY|ANTHROPIC|^AI_|GATEWAY|_MODEL_/i.test(k)).sort(),

@@ -9,7 +9,7 @@ import {
 } from 'ai'
 import { db } from '@/lib/supabase/server'
 import { getDossier } from '@/lib/dossier'
-import { MODEL_MAIN } from '@/lib/ai'
+import { MODEL_MAIN, friendlyAiError } from '@/lib/ai'
 import { buildSystemPrompt } from '@/lib/copilot/system-prompt'
 import { copilotTools } from '@/lib/copilot/tools'
 
@@ -78,6 +78,7 @@ export async function POST(req: Request) {
     stream: toUIMessageStream({
       stream: result.stream,
       originalMessages: messages,
+      onError: (e) => friendlyAiError(e) ?? 'Marky no pudo responder. Probá de nuevo en un momento.',
       onEnd: async ({ messages: all, isAborted, isCancelled }) => {
         if (isAborted || isCancelled) return
         try {

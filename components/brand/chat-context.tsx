@@ -73,7 +73,7 @@ export function ChatProvider({ initialMessages, children }: { initialMessages: U
     onFinish: () => {
       void refresh()
     },
-    onError: () => toast.error('Marky no pudo responder. Probá de nuevo en un momento.'),
+    onError: (e) => toast.error(e?.message && e.message.length < 300 ? e.message : 'Marky no pudo responder. Probá de nuevo en un momento.'),
   })
 
   const send = useCallback(

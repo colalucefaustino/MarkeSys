@@ -2,6 +2,7 @@ import { after } from 'next/server'
 import { db } from '@/lib/supabase/server'
 import { createRun, RunProgress, type AgentKey } from '@/lib/agents/runs'
 import { latestSections } from '@/lib/dossier'
+import { friendlyAiError } from '@/lib/ai'
 
 export type StartResult =
   | { ok: true; runId: string; agent: AgentKey }
@@ -41,7 +42,7 @@ export async function startAgent(
         else await st.runA5(brandId, run.id, progress)
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Error inesperado'
+      const message = friendlyAiError(err) ?? (err instanceof Error ? err.message : 'Error inesperado')
       console.log('[v0] agent failed', agent, message)
       await progress.fail(message)
       if (agent === 'A1') {

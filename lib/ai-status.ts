@@ -1,6 +1,6 @@
 import { gateway } from 'ai'
 import { db } from '@/lib/supabase/server'
-import { FALLBACK_ENABLED, GATEWAY_AVAILABLE, adoptGeminiExhausted, geminiStatus } from '@/lib/ai'
+import { FALLBACK_ENABLED, GATEWAY_AVAILABLE, adoptUnavailable, geminiStatus } from '@/lib/ai'
 
 // Estado de la IA para el indicador de la barra superior y /api/health.
 //
@@ -13,29 +13,27 @@ const STATUS_PATH = 'system/ai-status.json'
 /** Por debajo de este saldo (en dólares) se avisa que el crédito de respaldo está bajo. */
 const LOW_CREDIT_USD = 1
 
-let persistedCache: { until: number; readAt: number } | null = null
+let persistedCache: { map: Record<string, number>; readAt: number } | null = null
 let creditsCache: { balance: number | null; readAt: number } | null = null
 
-/** Guarda hasta cuándo Gemini está sin cupo (lo llama lib/ai.ts). */
-export async function persistGeminiExhausted(until: number) {
-  persistedCache = { until, readAt: Date.now() }
-  const body = new Blob([JSON.stringify({ gemini_agotado_hasta: new Date(until).toISOString() })], {
-    type: 'application/json',
-  })
+/** Guarda hasta cuándo cada modelo está sin cupo o sin acceso (lo llama lib/ai.ts). */
+export async function persistUnavailable(map: Record<string, number>) {
+  persistedCache = { map, readAt: Date.now() }
+  const body = new Blob([JSON.stringify({ modelos_sin_cupo: map })], { type: 'application/json' })
   await db().storage.from(BUCKET).upload(STATUS_PATH, body, { upsert: true, contentType: 'application/json' })
 }
 
-async function readPersistedUntil(): Promise<number> {
-  if (persistedCache && Date.now() - persistedCache.readAt < 60_000) return persistedCache.until
-  let until = 0
+async function readPersisted(): Promise<Record<string, number>> {
+  if (persistedCache && Date.now() - persistedCache.readAt < 60_000) return persistedCache.map
+  let map: Record<string, number> = {}
   try {
     const { data } = await db().storage.from(BUCKET).download(STATUS_PATH)
-    if (data) until = Date.parse(JSON.parse(await data.text()).gemini_agotado_hasta) || 0
+    if (data) map = JSON.parse(await data.text()).modelos_sin_cupo ?? {}
   } catch {
-    // sin archivo o sin Supabase: se asume que Gemini tiene cupo
+    // sin archivo o sin Supabase: se asume que hay cupo
   }
-  persistedCache = { until, readAt: Date.now() }
-  return until
+  persistedCache = { map, readAt: Date.now() }
+  return map
 }
 
 /** Saldo del AI Gateway en dólares (null si no se puede consultar). Cache de 5 minutos. */
@@ -67,14 +65,16 @@ export interface AiStatus {
 export async function getAiStatus(): Promise<AiStatus> {
   if (!FALLBACK_ENABLED) return { estado: 'ok', gemini_vuelve: null, saldo_gateway: null }
 
-  const persisted = await readPersistedUntil()
-  if (persisted > Date.now()) adoptGeminiExhausted(persisted)
+  adoptUnavailable(await readPersisted())
   const gemini = geminiStatus()
   const saldo = await gatewayBalance()
 
   let estado: AiState = 'ok'
-  if (gemini.agotado) {
-    estado = saldo !== null && saldo <= 0 ? 'sin_ia' : 'respaldo'
+  if (gemini.todos_agotados) {
+    // Los dos modelos de Gemini sin cupo: el Gateway solo sirve si tiene saldo pago.
+    estado = saldo !== null && saldo > LOW_CREDIT_USD ? 'respaldo' : 'sin_ia'
+  } else if (gemini.agotado) {
+    estado = 'respaldo'
   } else if (saldo !== null && saldo > 0 && saldo < LOW_CREDIT_USD) {
     // Con Gemini funcionando, solo avisamos si el respaldo está por terminarse.
     // (Saldo 0 sin uso previo es normal: el crédito gratis se activa con el primer pedido.)

@@ -51,13 +51,16 @@ const GATEWAY_FAST =
 
 /** El Gateway funciona solo dentro de Vercel (OIDC) o con AI_GATEWAY_API_KEY. */
 export const GATEWAY_AVAILABLE = Boolean(process.env.AI_GATEWAY_API_KEY?.trim() || process.env.VERCEL_OIDC_TOKEN || process.env.VERCEL)
-export const FALLBACK_ENABLED =
-  AI_PROVIDER === 'google' && GATEWAY_AVAILABLE && process.env.AI_FALLBACK?.trim().toLowerCase() !== 'off'
+/**
+ * Cadena de respaldo con Gemini: cada modelo de Gemini tiene su propio cupo diario
+ * gratis, así que primero se pasa al otro modelo de Gemini y recién después al Gateway.
+ */
+export const FALLBACK_ENABLED = AI_PROVIDER === 'google' && process.env.AI_FALLBACK?.trim().toLowerCase() !== 'off'
 
-// ---------- Estado del cupo de Gemini ----------
-// Vive en la memoria de cada instancia del servidor: alcanza para no gastar
-// un pedido fallido por cada llamada una vez que el cupo se terminó.
-let geminiExhaustedUntil = 0
+// ---------- Cupo de cada modelo ----------
+// Vive en la memoria de cada instancia y se guarda en Storage (lib/ai-status.ts) para las demás.
+// Clave: "google/<modelo>" o "gateway/<modelo>". Valor: hasta cuándo no usarlo (ms).
+const unavailable = new Map<string, number>()
 
 /** Próxima medianoche en la hora del Pacífico (cuando Google reinicia el cupo diario). */
 function nextPacificMidnight(now = new Date()): number {
@@ -80,26 +83,33 @@ function nextPacificMidnight(now = new Date()): number {
   return now.getTime() - elapsedMs + 24 * 60 * 60 * 1000 + 60_000 // +1 min de margen
 }
 
-/** Marca a Gemini como agotado hasta que Google reinicie el cupo y lo guarda para las demás instancias. */
-function setGeminiExhausted() {
-  geminiExhaustedUntil = nextPacificMidnight()
-  const until = geminiExhaustedUntil
+const isOff = (key: string) => (unavailable.get(key) ?? 0) > Date.now()
+
+function markUnavailable(key: string, until: number) {
+  unavailable.set(key, until)
+  const snapshot = Object.fromEntries([...unavailable].filter(([, t]) => t > Date.now()))
   // import dinámico: ai-status importa este archivo
   import('@/lib/ai-status')
-    .then((m) => m.persistGeminiExhausted(until))
+    .then((m) => m.persistUnavailable(snapshot))
     .catch((e) => console.warn('[ia] no pude guardar el estado del cupo:', e instanceof Error ? e.message : e))
 }
 
 /** Toma el estado guardado por otra instancia del servidor. */
-export function adoptGeminiExhausted(until: number) {
-  if (until > geminiExhaustedUntil) geminiExhaustedUntil = until
+export function adoptUnavailable(map: Record<string, number>) {
+  for (const [k, t] of Object.entries(map)) if (t > (unavailable.get(k) ?? 0)) unavailable.set(k, t)
 }
 
+const GEMINI_KEYS = [`google/${GEMINI_MAIN}`, `google/${GEMINI_FAST}`]
+
+/** Estado de Gemini para el indicador: "agotado" si el modelo principal no tiene cupo. */
 export function geminiStatus() {
-  const exhausted = Date.now() < geminiExhaustedUntil
+  const until = unavailable.get(GEMINI_KEYS[0]) ?? 0
+  const exhausted = until > Date.now()
+  const allOut = GEMINI_KEYS.every(isOff)
   return {
     agotado: exhausted,
-    vuelve: exhausted ? new Date(geminiExhaustedUntil).toISOString() : null,
+    todos_agotados: allOut,
+    vuelve: exhausted ? new Date(until).toISOString() : null,
   }
 }
 
@@ -112,45 +122,96 @@ export function isQuotaError(e: unknown): boolean {
   return /quota|RESOURCE_EXHAUSTED|rate limit/i.test(text)
 }
 
-/** Las herramientas propias de un proveedor (ej. google_search) no viajan a otro. */
+/** ¿El modelo del Gateway no está disponible para esta cuenta (plan gratis, sin créditos)? */
+function isAccessError(e: unknown): boolean {
+  const err = e as { statusCode?: number; message?: string; responseBody?: string; lastError?: unknown }
+  if (err?.lastError) return isAccessError(err.lastError)
+  const text = `${err?.message ?? ''} ${err?.responseBody ?? ''}`
+  return err?.statusCode === 402 || err?.statusCode === 403 || /free tier|do not have access|insufficient|credits|top-up/i.test(text)
+}
+
+/** Error que ve el dueño cuando no queda ningún modelo con cupo. */
+export class AiUnavailableError extends Error {
+  constructor(public readonly until: number | null) {
+    super(
+      `Se terminó el cupo gratis de IA por hoy.${until ? ` Vuelve ${backAt(until)}.` : ''} Mientras tanto podés revisar y editar lo que ya está armado.`,
+    )
+    this.name = 'AiUnavailableError'
+  }
+}
+
+/** "mañana a las 4:00" en hora argentina. */
+function backAt(ms: number) {
+  const tz = 'America/Argentina/Buenos_Aires'
+  const day = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: tz })
+  const d = new Date(ms)
+  const hour = d.toLocaleTimeString('es-AR', { timeZone: tz, hour: 'numeric', minute: '2-digit', hourCycle: 'h23' })
+  return day(d) === day(new Date()) ? `hoy a las ${hour}` : `mañana a las ${hour}`
+}
+
+/** Traduce los errores de IA a un mensaje para el dueño (o null si no es un error de IA conocido). */
+export function friendlyAiError(e: unknown): string | null {
+  if (e instanceof AiUnavailableError) return e.message
+  if (isQuotaError(e) || isAccessError(e)) return new AiUnavailableError(nextPacificMidnight()).message
+  return null
+}
+
+/** Las herramientas propias de un proveedor (ej. google_search) no viajan a otro proveedor. */
 const usesProviderTools = (o: LanguageModelV4CallOptions) => Boolean(o.tools?.some((t) => t.type === 'provider'))
 
+type Link = { key: string; model: () => LanguageModelV4; provider: 'google' | 'gateway' }
+
 /**
- * Envuelve un modelo de Gemini: si se queda sin cupo, reintenta el mismo pedido
- * por el Gateway. Para quien lo usa es un modelo normal.
+ * Envuelve una cadena de modelos: usa el primero con cupo y, si responde "sin cupo"
+ * o "sin acceso", lo marca y sigue con el próximo. Para quien lo usa es un modelo normal.
  */
-function withFallback(primary: LanguageModelV4, backupId: string): LanguageModelV4 {
-  const backup = () => gateway(backupId) as unknown as LanguageModelV4
-  const pick = (o: LanguageModelV4CallOptions) =>
-    Date.now() < geminiExhaustedUntil && !usesProviderTools(o) ? backup() : primary
+function withChain(chain: Link[]): LanguageModelV4 {
+  const first = chain[0].model()
 
   async function run<T>(o: LanguageModelV4CallOptions, call: (m: LanguageModelV4) => PromiseLike<T>): Promise<T> {
-    const model = pick(o)
-    try {
-      return await call(model)
-    } catch (e) {
-      if (model !== primary || !isQuotaError(e) || usesProviderTools(o)) throw e
-      setGeminiExhausted()
-      console.warn(`[ia] Gemini sin cupo hasta ${new Date(geminiExhaustedUntil).toISOString()}; sigo por el Gateway (${backupId})`)
-      return await call(backup())
+    const usable = chain.filter((l) => !isOff(l.key) && (l.provider === 'google' || !usesProviderTools(o)))
+    let lastError: unknown
+    for (const link of usable) {
+      try {
+        return await call(link.model())
+      } catch (e) {
+        lastError = e
+        if (isQuotaError(e)) {
+          markUnavailable(link.key, link.provider === 'google' ? nextPacificMidnight() : Date.now() + 10 * 60_000)
+        } else if (link.provider === 'gateway' && isAccessError(e)) {
+          markUnavailable(link.key, Date.now() + 24 * 60 * 60_000)
+        } else {
+          throw e
+        }
+        console.warn(`[ia] ${link.key} sin cupo o sin acceso; pruebo con el siguiente`)
+      }
     }
+    const back = Math.min(...GEMINI_KEYS.map((k) => unavailable.get(k) ?? 0).filter((t) => t > Date.now()))
+    if (lastError && !(isQuotaError(lastError) || isAccessError(lastError))) throw lastError
+    throw new AiUnavailableError(Number.isFinite(back) ? back : null)
   }
 
   return {
     specificationVersion: 'v4',
-    provider: primary.provider,
-    modelId: primary.modelId,
-    supportedUrls: primary.supportedUrls,
+    provider: first.provider,
+    modelId: first.modelId,
+    supportedUrls: first.supportedUrls,
     doGenerate: (o) => run(o, (m) => m.doGenerate(o)),
     doStream: (o) => run(o, (m) => m.doStream(o)),
   }
 }
 
+const geminiLink = (id: string): Link => ({ key: `google/${id}`, provider: 'google', model: () => google(id) as unknown as LanguageModelV4 })
+const gatewayLink = (id: string): Link => ({ key: `gateway/${id}`, provider: 'gateway', model: () => gateway(id) as unknown as LanguageModelV4 })
+
 function build(kind: 'main' | 'fast'): LanguageModelV4 {
   if (AI_PROVIDER === 'anthropic') return anthropic(kind === 'main' ? CLAUDE_MAIN : CLAUDE_FAST) as unknown as LanguageModelV4
   if (AI_PROVIDER === 'google') {
-    const g = google(kind === 'main' ? GEMINI_MAIN : GEMINI_FAST) as unknown as LanguageModelV4
-    return FALLBACK_ENABLED ? withFallback(g, kind === 'main' ? GATEWAY_MAIN : GATEWAY_FAST) : g
+    const [a, b] = kind === 'main' ? [GEMINI_MAIN, GEMINI_FAST] : [GEMINI_FAST, GEMINI_MAIN]
+    if (!FALLBACK_ENABLED) return google(a) as unknown as LanguageModelV4
+    const chain = [geminiLink(a), ...(b !== a ? [geminiLink(b)] : [])]
+    if (GATEWAY_AVAILABLE) chain.push(gatewayLink(kind === 'main' ? GATEWAY_MAIN : GATEWAY_FAST))
+    return withChain(chain)
   }
   return gateway(kind === 'main' ? GATEWAY_MAIN : GATEWAY_FAST) as unknown as LanguageModelV4
 }
@@ -167,18 +228,33 @@ export function searchModel(): { model: any; tools?: Record<string, any>; via: s
       via: `anthropic/${CLAUDE_MAIN}`,
     }
   }
-  // Gemini con cupo: usa la búsqueda de Google integrada.
-  if (AI_PROVIDER === 'google' && !(FALLBACK_ENABLED && geminiStatus().agotado)) {
-    return { model: google(GEMINI_MAIN), tools: { google_search: google.tools.googleSearch({}) }, via: `google/${GEMINI_MAIN}` }
+  // Gemini con cupo (el principal o el rápido): usa la búsqueda de Google integrada.
+  if (AI_PROVIDER === 'google') {
+    const id = [GEMINI_MAIN, GEMINI_FAST].find((m) => !isOff(`google/${m}`))
+    if (id || !FALLBACK_ENABLED) {
+      const m = id ?? GEMINI_MAIN
+      return { model: google(m), tools: { google_search: google.tools.googleSearch({}) }, via: `google/${m}` }
+    }
   }
-  // Gateway (o Gemini agotado): un modelo que ya busca en la web por sí solo.
+  // Gateway (o los dos Gemini agotados): un modelo que ya busca en la web por sí solo.
   const id = process.env.GATEWAY_SEARCH_MODEL || 'perplexity/sonar'
+  if (!GATEWAY_AVAILABLE || isOff(`gateway/${id}`)) {
+    const back = Math.min(...GEMINI_KEYS.map((k) => unavailable.get(k) ?? 0).filter((t) => t > Date.now()))
+    throw new AiUnavailableError(Number.isFinite(back) ? back : null)
+  }
   return { model: gateway(id), via: id }
 }
 
-/** Avisar que Gemini se quedó sin cupo durante una búsqueda (desde Visibilidad). */
-export function markGeminiExhausted() {
-  if (FALLBACK_ENABLED) setGeminiExhausted()
+/** Avisar desde Visibilidad que el modelo de búsqueda usado se quedó sin cupo o sin acceso. */
+export function markSearchModelOut(via: string, e: unknown) {
+  if (!FALLBACK_ENABLED) return
+  if (via.startsWith('google/') && isQuotaError(e)) markUnavailable(via, nextPacificMidnight())
+  else if (isQuotaError(e) || isAccessError(e)) markUnavailable(`gateway/${via}`, Date.now() + 24 * 60 * 60_000)
+}
+
+/** ¿Vale la pena reintentar la búsqueda con el próximo modelo? */
+export function isOutOfQuota(e: unknown) {
+  return isQuotaError(e) || isAccessError(e)
 }
 
 export function todayAR() {

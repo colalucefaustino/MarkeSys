@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { friendlyAiError } from '@/lib/ai'
 import { z } from 'zod'
 import { db } from '@/lib/supabase/server'
 import { latestSections } from '@/lib/dossier'
@@ -20,6 +21,6 @@ export async function POST(req: Request) {
     await db().from('dossier_sections').update({ data }).eq('id', row.id)
     return NextResponse.json({ script })
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : 'No pude escribir el guion' }, { status: 500 })
+    return NextResponse.json({ error: friendlyAiError(e) ?? (e instanceof Error ? e.message : 'No pude escribir el guion') }, { status: 500 })
   }
 }

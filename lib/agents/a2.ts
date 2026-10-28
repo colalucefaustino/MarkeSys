@@ -2,9 +2,10 @@ import { generateObject, generateText, stepCountIs } from 'ai'
 import { z } from 'zod'
 import pLimit from 'p-limit'
 import { db } from '@/lib/supabase/server'
-import { MODEL_MAIN, MODEL_FAST, todayISO, searchModel, FALLBACK_ENABLED, isQuotaError, markGeminiExhausted } from '@/lib/ai'
+import { MODEL_MAIN, MODEL_FAST, todayISO, searchModel, isOutOfQuota, markSearchModelOut } from '@/lib/ai'
 import { getDossier, dossierSummary, writeSectionData, ensureDraft } from '@/lib/dossier'
 import type { RunProgress } from '@/lib/agents/runs'
+import { decodeDomain, prettyName } from '@/lib/names'
 import { templateQueries, mergeQueries, pickLlmQueries, MAX_QUERIES, type DraftQuery } from '@/lib/agents/visibility-queries'
 
 const CHANNEL_TIMEOUT = 60_000
@@ -140,29 +141,36 @@ async function serper(path: 'search' | 'places', q: string) {
 
 async function askSearchModel(q: string) {
   const { via, ...search } = searchModel()
-  const result = await withTimeout((signal) =>
-    generateText({
-      ...search,
-      stopWhen: stepCountIs(5),
-      abortSignal: signal,
-      system:
-        'Sos un asistente que ayuda a compradores argentinos. Respondé en español rioplatense con 4 a 6 recomendaciones concretas de negocios o marcas, con nombre propio, y citá fuentes.',
-      prompt: q,
-    }),
-  )
-  return { ...result, via }
+  try {
+    const result = await withTimeout((signal) =>
+      generateText({
+        ...search,
+        stopWhen: stepCountIs(5),
+        abortSignal: signal,
+        system:
+          'Sos un asistente que ayuda a compradores argentinos. Respondé en español rioplatense con 4 a 6 recomendaciones concretas de negocios o marcas, con nombre propio, y citá fuentes.',
+        prompt: q,
+      }),
+    )
+    return { ...result, via }
+  } catch (e) {
+    // Marca el modelo como sin cupo para que el próximo intento use otro.
+    markSearchModelOut(via, e)
+    throw e
+  }
 }
 
 async function runLlmQuery(q: string, identity: Identity) {
-  let answer: Awaited<ReturnType<typeof askSearchModel>>
-  try {
-    answer = await askSearchModel(q)
-  } catch (e) {
-    // Gemini sin cupo: se marca agotado y la misma búsqueda se repite por el Gateway.
-    if (!FALLBACK_ENABLED || !isQuotaError(e)) throw e
-    markGeminiExhausted()
-    answer = await askSearchModel(q)
+  let answer: Awaited<ReturnType<typeof askSearchModel>> | undefined
+  // Hasta 3 intentos: Gemini principal → Gemini rápido → Gateway.
+  for (let attempt = 0; attempt < 3 && !answer; attempt++) {
+    try {
+      answer = await askSearchModel(q)
+    } catch (e) {
+      if (!isOutOfQuota(e) || attempt === 2) throw e
+    }
   }
+  if (!answer) throw new Error('Sin respuesta del asistente')
   const { text, sources, via } = answer
   const urls: string[] = []
   for (const src of (sources ?? []) as any[]) if (src?.url) urls.push(String(src.url))
@@ -352,9 +360,11 @@ async function executeQueries(brandId: string, runId: string, progress: RunProgr
   const igHandle = igChannel ? cleanHandle(igChannel.handle_or_url) : null
   const ttHandle = ttChannel ? cleanHandle(ttChannel.handle_or_url) : null
 
+  // Otros nombres con los que el dueño marcó resultados como propios ("Es mi negocio").
+  const aliases: string[] = ((d.sections.ficha?.data as any)?.marca?.otros_nombres ?? []).filter(Boolean)
   const identity: Identity = {
-    names: [norm(d.brand.name)].filter(Boolean),
-    squashed: [squash(d.brand.name)],
+    names: [d.brand.name, ...aliases].map((x) => norm(x)).filter(Boolean),
+    squashed: [d.brand.name, ...aliases].map((x) => squash(x)).filter(Boolean),
     domain: hostOf(d.brand.website_url ?? webChannel?.handle_or_url ?? ''),
     handles: [igHandle, ttHandle].filter(Boolean) as string[],
   }
@@ -523,7 +533,8 @@ async function executeQueries(brandId: string, runId: string, progress: RunProgr
   for (const r of results.llm) r.mentions.forEach((m) => bump(m, 'llm'))
   for (const r of results.google_web)
     for (const s of r.sources.slice(0, 10)) {
-      if (s.domain && !GENERIC_DOMAINS.has(s.domain) && s.domain !== identity.domain) bump(s.domain.replace(/\.(com|net|org)(\.ar)?$/, ''), 'google_web')
+      if (s.domain && !GENERIC_DOMAINS.has(s.domain) && s.domain !== identity.domain)
+        bump(prettyName(decodeDomain(s.domain).replace(/\.(com|net|org)(\.ar)?$/, '')), 'google_web')
     }
   for (const r of results.google_maps) r.mentions.slice(0, 10).forEach((m) => bump(m, 'google_maps'))
   void ownNorm
