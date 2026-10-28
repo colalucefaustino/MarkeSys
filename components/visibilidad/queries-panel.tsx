@@ -73,7 +73,7 @@ export function QueriesPanel({
       <header className="space-y-1">
         <h1 className="text-xl font-semibold text-balance">Esto es lo que vamos a buscar</h1>
         <p className="text-sm text-muted-foreground text-pretty">
-          Son las búsquedas que haría un cliente tuyo. Las vamos a probar en asistentes de IA, Google y Google Maps. Podés sacar, editar o sumar las que quieras.
+          Son las búsquedas que haría un cliente tuyo. Las vamos a probar todas en Google y Google Maps, y las más importantes (las que no usan tu nombre) también en asistentes de IA. Podés sacar, editar o sumar las que quieras.
         </p>
       </header>
 

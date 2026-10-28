@@ -5,6 +5,7 @@ import { db } from '@/lib/supabase/server'
 import { MODEL_MAIN, MODEL_FAST, todayISO, searchModel, FALLBACK_ENABLED, isQuotaError, markGeminiExhausted } from '@/lib/ai'
 import { getDossier, dossierSummary, writeSectionData, ensureDraft } from '@/lib/dossier'
 import type { RunProgress } from '@/lib/agents/runs'
+import { templateQueries, mergeQueries, pickLlmQueries, MAX_QUERIES, type DraftQuery } from '@/lib/agents/visibility-queries'
 
 const CHANNEL_TIMEOUT = 60_000
 const QUERY_CHANNELS = ['llm', 'google_web', 'google_maps'] as const
@@ -50,41 +51,57 @@ async function generateQueries(brandId: string, runId: string, progress: RunProg
   if (!d.brand) throw new Error('Marca no encontrada')
 
   const grande = d.brand.size_segment === 'grande'
-  const { object } = await generateObject({
-    model: MODEL_MAIN,
-    schema: z.object({
-      queries: z
-        .array(
-          z.object({
-            text: z.string().min(6).max(140),
-            kind: z.enum(['generica', 'nicho', 'atributo', 'marca']),
-          }),
-        )
-        .min(10)
-        .max(grande ? 14 : 12),
-    }),
-    prompt: `Sos un especialista en visibilidad digital para negocios argentinos. Hoy es ${todayISO()}.
-Armá entre 10 y ${grande ? 14 : 12} búsquedas reales que haría un comprador argentino para encontrar un negocio como este. Escribilas como las tipea la gente (español rioplatense, sin signos de pregunta forzados).
+  const ficha = (d.sections.ficha?.data ?? {}) as any
+  const productCats = [...new Set(d.products.map((p) => p.category).filter(Boolean) as string[])]
+  const categorias: string[] = ficha.productos_resumen?.categorias?.length ? ficha.productos_resumen.categorias : productCats
 
-Tipos:
-- generica: categoría + ciudad (ej. "zapatillas running en ${d.brand.city ?? 'la ciudad'}").
-- nicho: necesidad o subsegmento específico del negocio.
-- atributo: busca por un beneficio concreto (envío, cuotas, precio, calidad, material) sin nombrar la marca.
-- marca: incluye el nombre "${d.brand.name}" (2 como máximo).
-${grande ? '- Sumá sub-segmentos y 2 comparativas contra competidores conocidos.\n' : ''}
-Reglas: al menos 6 búsquedas SIN el nombre de la marca. Usá solo rubros, productos y ciudad que figuran en el Expediente. No inventes productos.
+  // 1) Base por código: categoría + ciudad, atributos declarados y marca.
+  const templates = templateQueries({
+    brandName: d.brand.name,
+    city: d.brand.city ?? ficha.marca?.ciudad ?? null,
+    rubro: ficha.marca?.rubro ?? null,
+    categorias,
+    beneficios: ficha.beneficios_comunicables ?? [],
+    grande,
+  })
+
+  // 2) Una sola llamada de IA para las búsquedas de nicho (lo que el código no puede deducir).
+  // Si la Ficha no alcanza para armar la base (sin rubro ni categorías), la IA arma más.
+  const baseCount = templates.filter((q) => q.kind !== 'marca').length
+  const wanted = baseCount < 3 ? MAX_QUERIES - templates.length : grande ? 6 : 4
+  let fromAi: DraftQuery[] = []
+  try {
+    const { object } = await generateObject({
+      model: MODEL_FAST,
+      schema: z.object({
+        queries: z.array(z.object({ text: z.string().min(6).max(140), kind: z.enum(['nicho', 'atributo']) })).max(wanted),
+      }),
+      prompt: `Sos especialista en visibilidad digital para negocios argentinos. Hoy es ${todayISO()}.
+Ya tengo estas búsquedas armadas:
+${templates.map((q) => `- ${q.text}`).join('\n')}
+
+Agregá hasta ${wanted} búsquedas DISTINTAS de nicho: necesidades o subsegmentos específicos de este negocio que un comprador argentino tipearía en Google (rioplatense, como escribe la gente, sin el nombre de la marca).${grande ? ' Incluí sub-segmentos y comparativas contra competidores conocidos.' : ''}
+Usá solo rubros, productos y ciudad del Expediente. No inventes productos.
 
 EXPEDIENTE:
 ${dossierSummary(d)}`,
-  })
+    })
+    fromAi = object.queries.map((q) => ({ text: q.text.trim(), kind: q.kind }))
+  } catch (e) {
+    // Sin IA igual se mide con las búsquedas base.
+    console.warn('[a2] no pude sumar búsquedas de nicho:', e instanceof Error ? e.message : e)
+  }
+
+  const queries = mergeQueries(templates, fromAi)
+  if (!queries.length) throw new Error('Faltan el rubro o las categorías de productos en la Ficha para armar las búsquedas.')
 
   await db().from('visibility_queries').delete().eq('brand_id', brandId)
   await db()
     .from('visibility_queries')
-    .insert(object.queries.map((q) => ({ brand_id: brandId, run_id: runId, text: q.text.trim(), kind: q.kind, approved: true, origin: 'agente' })))
+    .insert(queries.map((q) => ({ brand_id: brandId, run_id: runId, text: q.text, kind: q.kind, approved: true, origin: 'agente' })))
 
-  await progress.update('gen', 'done', `${object.queries.length} búsquedas`)
-  await progress.finish({ phase: 'queries', count: object.queries.length })
+  await progress.update('gen', 'done', `${queries.length} búsquedas`)
+  await progress.finish({ phase: 'queries', count: queries.length })
 }
 
 /* ───────────── Canales ───────────── */
@@ -148,33 +165,56 @@ async function runLlmQuery(q: string, identity: Identity) {
   }
   const { text, sources, via } = answer
   const urls: string[] = []
-  for (const s of (sources ?? []) as any[]) if (s?.url) urls.push(String(s.url))
+  for (const src of (sources ?? []) as any[]) if (src?.url) urls.push(String(src.url))
   for (const m of text.matchAll(/https?:\/\/[^\s)\]]+/g)) urls.push(m[0])
   const uniqueUrls = [...new Set(urls)]
-  const isIn = appears(identity, [{ text, url: uniqueUrls.join(' ') }])
+  // "Aparece" lo decide el código; las marcas mencionadas se extraen después, todas juntas.
+  return {
+    appears: appears(identity, [{ text, url: uniqueUrls.join(' ') }]),
+    position: null as number | null,
+    mentions: [] as string[],
+    sources: uniqueUrls.slice(0, 10).map((u) => ({ url: u, domain: hostOf(u) })),
+    raw: { answer: text.slice(0, 3000), modelo: via },
+  }
+}
 
-  let position: number | null = null
-  let mentions: string[] = []
+/**
+ * Una sola llamada para sacar las marcas recomendadas de todas las respuestas
+ * de los asistentes (antes era una llamada por búsqueda).
+ */
+async function extractLlmMentions(
+  rows: { queryId: string; appears: boolean; position: number | null; mentions: string[]; raw: any }[],
+  identity: Identity,
+) {
+  const withText = rows.filter((r) => r.raw?.answer)
+  if (!withText.length) return
   try {
     const { object } = await generateObject({
       model: MODEL_FAST,
-      schema: z.object({ marcas: z.array(z.string()).max(10) }),
-      prompt: `De esta respuesta, listá en orden de aparición los nombres de negocios o marcas recomendadas (solo nombres propios, sin repetir):\n\n${text.slice(0, 4000)}`,
+      schema: z.object({
+        respuestas: z.array(z.object({ n: z.number().int(), marcas: z.array(z.string()).max(10) })),
+      }),
+      prompt: `Para cada respuesta numerada, listá en orden de aparición los nombres de negocios o marcas recomendadas (solo nombres propios, sin repetir). Devolvé una entrada por respuesta con su número.
+
+${withText.map((r, i) => `### Respuesta ${i + 1}\n${String(r.raw.answer).slice(0, 2500)}`).join('\n\n')}`,
     })
-    mentions = object.marcas
-    if (isIn) {
-      const idx = mentions.findIndex((m) => appears(identity, [{ text: m }]))
-      position = idx >= 0 ? idx + 1 : 1
+    for (const item of object.respuestas) {
+      const row = withText[item.n - 1]
+      if (!row) continue
+      row.mentions = item.marcas
+      if (row.appears) {
+        const idx = item.marcas.findIndex((m) => appears(identity, [{ text: m }]))
+        row.position = idx >= 0 ? idx + 1 : 1
+      }
+      await db()
+        .from('visibility_results')
+        .update({ mentions: row.mentions, position: row.position })
+        .eq('query_id', row.queryId)
+        .eq('channel', 'llm')
     }
-  } catch {
-    mentions = []
-  }
-  return {
-    appears: isIn,
-    position,
-    mentions,
-    sources: uniqueUrls.slice(0, 10).map((u) => ({ url: u, domain: hostOf(u) })),
-    raw: { answer: text.slice(0, 3000), modelo: via },
+  } catch (e) {
+    // Sin la extracción igual queda si aparece o no; solo se pierde la posición.
+    console.warn('[a2] no pude extraer las marcas mencionadas:', e instanceof Error ? e.message : e)
   }
 }
 
@@ -319,6 +359,8 @@ async function executeQueries(brandId: string, runId: string, progress: RunProgr
     handles: [igHandle, ttHandle].filter(Boolean) as string[],
   }
 
+  const llmQueries = pickLlmQueries(queries, (text) => appears(identity, [{ text }]))
+
   const hasSerper = !!process.env.SERPER_API_KEY
   const hasApify = !!process.env.APIFY_TOKEN
 
@@ -356,9 +398,18 @@ async function executeQueries(brandId: string, runId: string, progress: RunProgr
     }
     await progress.update(channel, 'running')
     state[channel] = { ok: 0, failed: 0 }
+    const toRun = channel === 'llm' ? llmQueries : queries
+    if (channel === 'llm') {
+      // Las demás búsquedas no se le preguntan a la IA (es el canal caro).
+      const skipped = queries.filter((q) => !llmQueries.includes(q))
+      if (skipped.length)
+        await db()
+          .from('visibility_results')
+          .insert(skipped.map((q) => ({ query_id: q.id, channel: 'llm', status: 'skipped', raw: { motivo: 'Solo se pregunta a la IA en búsquedas sin el nombre de tu marca' } })))
+    }
     const limit = pLimit(4)
     await Promise.all(
-      queries.map((q) =>
+      toRun.map((q) =>
         limit(async () => {
           try {
             const r = await runners[channel](q.text)
@@ -391,8 +442,9 @@ async function executeQueries(brandId: string, runId: string, progress: RunProgr
     await progress.update(
       channel,
       s.ok === 0 ? 'failed' : 'done',
-      s.ok === 0 ? `No pude consultar este canal (${s.lastError})` : `${s.ok} de ${queries.length} búsquedas${s.failed ? `, ${s.failed} fallaron` : ''}`,
+      s.ok === 0 ? `No pude consultar este canal (${s.lastError})` : `${s.ok} de ${toRun.length} búsquedas${s.failed ? `, ${s.failed} fallaron` : ''}`,
     )
+    if (channel === 'llm') await extractLlmMentions(results.llm, identity)
   }
 
   const socials: { red: string; own?: SocialStat; competidores: SocialStat[]; estado: 'ok' | 'failed' | 'skipped'; error?: string }[] = []

@@ -44,7 +44,19 @@ function scoreTone(n: number) {
 }
 
 function Cell({ r }: { r?: ResultRow }) {
-  if (!r || r.status !== 'ok') return <Minus className="mx-auto size-3.5 text-muted-foreground/50" aria-label="Sin dato" />
+  if (!r || r.status !== 'ok') {
+    const why =
+      r?.status === 'skipped' && r.channel === 'llm'
+        ? 'No se preguntó a la IA: solo se usan las búsquedas que no llevan tu nombre'
+        : r?.status === 'failed'
+          ? 'No se pudo medir'
+          : 'Sin dato'
+    return (
+      <span title={why} className="inline-flex">
+        <Minus className="mx-auto size-3.5 text-muted-foreground/50" aria-label={why} />
+      </span>
+    )
+  }
   if (!r.appears) return <X className="mx-auto size-4 text-red-500" aria-label="No aparece" />
   return (
     <span className="mx-auto inline-flex items-center gap-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
