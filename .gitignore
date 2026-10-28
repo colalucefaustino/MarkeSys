@@ -14,3 +14,8 @@ __v0_jsx-dev-runtime.ts
 node_modules
 .next/
 .DS_Storetsconfig.tsbuildinfo
+
+# Documentos internos (no se publican)
+CLAUDE.md
+CLAUDE.local.md
+docs/
