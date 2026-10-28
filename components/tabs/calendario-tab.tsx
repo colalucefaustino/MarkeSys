@@ -179,6 +179,8 @@ export function CalendarioTab() {
               <span className="rounded bg-muted px-2 py-0.5">{FMT[sel.formato] ?? sel.formato}</span>
               <span className="rounded bg-muted px-2 py-0.5">{sel.canal}</span>
               <span className="rounded bg-muted px-2 py-0.5">{sel.muestra_precio ? 'con precio' : 'sin precio'}</span>
+              {sel.producto && <span className="rounded bg-muted px-2 py-0.5">{sel.producto}</span>}
+              {sel.fecha_comercial && <span className="rounded bg-info/15 px-2 py-0.5 text-info">{sel.fecha_comercial}</span>}
               {sel.promo_propuesta && <span className="rounded bg-warning/20 px-2 py-0.5">Promo propuesta</span>}
             </div>
             {sel.copy && <div><p className="text-xs font-semibold text-muted-foreground uppercase">Texto</p><p>{sel.copy}</p></div>}

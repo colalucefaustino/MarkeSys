@@ -4,6 +4,7 @@ import { db } from '@/lib/supabase/server'
 import { MODEL_MAIN, MODEL_FAST, todayISO } from '@/lib/ai'
 import { getDossier, dossierSummary, writeSectionData } from '@/lib/dossier'
 import type { RunProgress } from '@/lib/agents/runs'
+import { buildSkeleton } from '@/lib/agents/calendar-skeleton'
 
 const NO_INVENT =
   'Regla absoluta: usá solo los datos que te paso. No inventes cifras, tamaños de mercado, beneficios ni fechas. Si falta algo, ponelo en missing_inputs.'
@@ -213,37 +214,8 @@ ${text}`,
 }
 
 /* ───────────── A5 · Calendario ───────────── */
-const PlanSchema = z.object({
-  campanas: z
-    .array(
-      z.object({
-        nombre: z.string(),
-        objetivo: z.string(),
-        mensaje_clave: z.string(),
-        inicio: z.string(),
-        fin: z.string(),
-        kpi: z.string(),
-      }),
-    )
-    .min(1)
-    .max(4),
-  items: z
-    .array(
-      z.object({
-        campana: z.number().describe('índice de la campaña, -1 para acciones de visibilidad'),
-        fecha: z.string().describe('AAAA-MM-DD'),
-        canal: z.string(),
-        formato: z.enum(['post', 'carrusel', 'historia', 'reel', 'whatsapp', 'email', 'accion_seo', 'accion_geo', 'accion_local']),
-        idea: z.string(),
-        copy: z.string(),
-        porque: z.string(),
-        muestra_precio: z.boolean(),
-        promo_propuesta: z.boolean(),
-      }),
-    )
-    .max(70),
-  missing_inputs: z.array(z.string()),
-})
+// El código arma el esqueleto (fechas, formatos, productos, acciones) y una sola
+// llamada de IA escribe ideas, textos y el porqué de cada pieza.
 
 function nextMonday(iso: string) {
   const dt = new Date(iso + 'T12:00:00')
@@ -252,53 +224,127 @@ function nextMonday(iso: string) {
   return dt.toISOString().slice(0, 10)
 }
 
+const FMT_LABEL: Record<string, string> = {
+  post: 'post', carrusel: 'carrusel', historia: 'historia', reel: 'reel', whatsapp: 'WhatsApp', email: 'email',
+}
+
 export async function runA5(brandId: string, runId: string, progress: RunProgress) {
   await progress.init([
-    { id: 'ctx', label: 'Leyendo objetivos, stock y estrategia' },
-    { id: 'plan', label: 'Armando campañas y calendario' },
+    { id: 'ctx', label: 'Armando fechas, formatos y productos' },
+    { id: 'plan', label: 'Escribiendo ideas y textos' },
   ])
   const { d, text } = await context(brandId)
   const objectives = d.objectives.filter((o) => o.deadline)
   if (!objectives.length) throw new Error('Faltan objetivos con fecha. Pedíselos al Copiloto.')
-  const ficha = d.sections.ficha?.data ?? {}
-  const estr = d.sections.estrategia?.data ?? {}
+  const ficha = (d.sections.ficha?.data ?? {}) as any
+  const estr = (d.sections.estrategia?.data ?? {}) as any
+  const vis = (d.sections.visibilidad?.data ?? {}) as any
   const start = nextMonday(todayISO())
   const end = objectives.map((o) => String(o.deadline)).sort().pop()!
-  const weeks = Math.max(1, Math.ceil((new Date(end).getTime() - new Date(start).getTime()) / (7 * 864e5)))
-  const gran = weeks <= 6 ? 'día' : weeks <= 17 ? 'semana' : 'mes'
   const cap = Number(ficha?.capacidad?.piezas_por_semana) || 3
   const { data: dates } = await db().from('commercial_dates').select('name,date_start').gte('date_start', start).lte('date_start', end)
-  await progress.update('ctx', 'done', `${weeks} semanas, ${cap} piezas por semana`)
+
+  const social = d.channels
+    .filter((c) => c.type === 'instagram' || c.type === 'tiktok')
+    .map((c) => (c.type === 'instagram' ? 'Instagram' : 'TikTok'))
+  const sk = buildSkeleton({
+    start,
+    end,
+    piezasPorSemana: cap,
+    formatos: ficha?.capacidad?.formatos_posibles ?? [],
+    socialChannels: [...new Set(social)],
+    products: d.products.map((p) => ({ name: String(p.name), stock: p.stock ?? null, is_star: p.is_star, push: p.push, excluded: p.excluded })),
+    objectives: objectives.map((o) => ({ description: String(o.description), deadline: String(o.deadline) })),
+    acciones: vis.acciones ?? [],
+    commercialDates: dates ?? [],
+    precios: ficha?.precios_en_publicaciones,
+  })
+  const toWrite = sk.items.map((it, idx) => ({ it, idx })).filter(({ it }) => it.campana >= 0)
+  await progress.update('ctx', 'done', `${sk.semanas} semanas, ${toWrite.length} piezas, ${cap} por semana`)
   await progress.update('plan', 'running')
 
   const { object } = await generateObject({
     model: MODEL_MAIN,
-    schema: PlanSchema,
-    prompt: `Armá el calendario de marketing de este comercio.
-HORIZONTE: del ${start} al ${end} (${weeks} semanas, granularidad ${gran}). Máximo ${cap} piezas por semana (las acciones de visibilidad no cuentan). Si el horizonte es largo, detallá bien el primer mes y después 1 o 2 piezas clave por semana.
-OBJETIVOS: ${objectives.map((o) => `${o.description} (hasta ${o.deadline})`).join(' | ')}
+    schema: z.object({
+      campanas: z
+        .array(z.object({ nombre: z.string(), mensaje_clave: z.string(), kpi: z.string() }))
+        .length(sk.campanas.length),
+      items: z.array(
+        z.object({
+          n: z.number().int().describe('número de la pieza del esqueleto'),
+          idea: z.string(),
+          copy: z.string(),
+          porque: z.string().describe('el dato que justifica esta pieza'),
+          promo_propuesta: z.boolean().describe('true solo si proponés un descuento o promo que no está confirmado'),
+        }),
+      ),
+      missing_inputs: z.array(z.string()),
+    }),
+    prompt: `Escribí el contenido del calendario de marketing de este comercio. El esqueleto ya está armado: NO cambies fechas, formatos, canales ni productos.
 ESTRATEGIA: nicho ${estr.nicho_elegido ?? 'sin definir'}; ${JSON.stringify(estr.posicionamiento ?? {})}
-FECHAS COMERCIALES (usá solo estas): ${(dates ?? []).map((x) => `${x.name} ${x.date_start}`).join(', ') || 'ninguna cargada: no menciones fechas comerciales'}
+
+CAMPAÑAS (devolvé una por línea, en el mismo orden, con nombre, mensaje clave y un KPI medible):
+${sk.campanas.map((c, k) => `${k}. Objetivo: ${c.objetivo} (del ${c.inicio} al ${c.fin})`).join('\n')}
+
+PIEZAS (devolvé una entrada por pieza con su número "n"):
+${toWrite
+  .map(
+    ({ it }, k) =>
+      `${k + 1}. ${it.fecha} · ${FMT_LABEL[it.formato] ?? it.formato} en ${it.canal} · campaña ${it.campana}${it.producto ? ` · producto: ${it.producto}` : ''}${it.fecha_comercial ? ` · cerca de ${it.fecha_comercial}` : ''}${it.muestra_precio ? ' · puede mostrar precio' : ' · sin precio'}`,
+  )
+  .join('\n')}
+
 REGLAS:
-- Al menos una campaña por objetivo. Cada pieza lleva "porque" con el dato que la justifica.
-- Incluí en las primeras semanas las acciones de visibilidad del diagnóstico (formato accion_geo, accion_seo o accion_local, campana -1).
-- Precios: respetá la preferencia de la Ficha ("precios_en_publicaciones").
+- Cada pieza lleva "porque" con el dato del diagnóstico, la estrategia o el stock que la justifica.
+- Respetá trato, tono y restricciones de la Ficha.
 - No inventes descuentos: si proponés uno, promo_propuesta true.
-- Productos excluidos nunca; productos con poco stock no se empujan.
 ${NO_INVENT}
 
 DATOS:
 ${text}`,
   })
-  const items = object.items
-    .filter((x) => x.fecha >= start && x.fecha <= end)
-    .sort((a, b) => a.fecha.localeCompare(b.fecha))
-    .map((x, i) => ({ ...x, id: `i${i}`, status: 'propuesta' as const }))
-  await progress.update('plan', 'done', `${object.campanas.length} campañas, ${items.length} ítems`)
+
+  const byN = new Map(object.items.map((x) => [x.n, x]))
+  const items = sk.items.map((it, idx) => {
+    const k = toWrite.findIndex((w) => w.idx === idx)
+    const written = k >= 0 ? byN.get(k + 1) : undefined
+    const promo = !!written?.promo_propuesta
+    return {
+      id: `i${idx}`,
+      status: 'propuesta' as const,
+      campana: it.campana,
+      fecha: it.fecha,
+      canal: it.canal,
+      formato: it.formato,
+      producto: it.producto,
+      fecha_comercial: it.fecha_comercial,
+      idea: it.idea ?? written?.idea ?? 'Idea pendiente: pedila con "otra idea"',
+      copy: written?.copy ?? '',
+      porque: it.porque ?? written?.porque ?? '',
+      muestra_precio: it.muestra_precio || (promo && ficha?.precios_en_publicaciones === 'solo_promos'),
+      promo_propuesta: promo,
+    }
+  })
+  const campanas = sk.campanas.map((c, k) => ({
+    nombre: object.campanas[k]?.nombre ?? `Campaña ${k + 1}`,
+    objetivo: c.objetivo,
+    mensaje_clave: object.campanas[k]?.mensaje_clave ?? '',
+    inicio: c.inicio,
+    fin: c.fin,
+    kpi: object.campanas[k]?.kpi ?? '',
+  }))
+
+  await progress.update('plan', 'done', `${campanas.length} campañas, ${items.length} ítems`)
   await writeSectionData(
     brandId,
     'calendario',
-    { horizonte: { inicio: start, fin: end, semanas: weeks, granularidad: gran, piezas_por_semana: cap }, campanas: object.campanas, items, missing_inputs: object.missing_inputs },
+    {
+      horizonte: { inicio: start, fin: end, semanas: sk.semanas, granularidad: sk.granularidad, piezas_por_semana: cap },
+      campanas,
+      items,
+      stock: sk.stock,
+      missing_inputs: object.missing_inputs,
+    },
     { status: 'pending_approval', agentRunId: runId },
   )
   await progress.finish({ items: items.length })
