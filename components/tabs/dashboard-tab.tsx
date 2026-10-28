@@ -15,7 +15,9 @@ export function DashboardTab() {
   const { data, mutate } = useSWR(`/api/sales?brandId=${brandId}`, fetcher)
   const months = (data?.months ?? []) as any[]
   const products = (data?.products ?? []) as any[]
-  const insights = data?.insights as any[] | null
+  // Lista de hallazgos (también acepta { hallazgos: [...] } por si quedó guardado así).
+  const rawInsights = data?.insights as any
+  const insights = (Array.isArray(rawInsights) ? rawInsights : Array.isArray(rawInsights?.hallazgos) ? rawInsights.hallazgos : null) as any[] | null
 
   if (!data) return <div className="flex h-full items-center justify-center"><Loader2 className="animate-spin text-muted-foreground" /></div>
 

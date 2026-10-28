@@ -3,7 +3,7 @@
 
 export const DEMO_BRAND_ID = '0e5a1d00-de30-4000-8000-00000000c0fe'
 /** Subir este número cuando cambie el contenido de la marca demo: se vuelve a cargar sola. */
-export const DEMO_VERSION = 1
+export const DEMO_VERSION = 2
 
 export const isDemoBrand = (brandId: string | null | undefined) => brandId === DEMO_BRAND_ID
 

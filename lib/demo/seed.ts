@@ -517,13 +517,11 @@ export async function ensureDemoBrand({ force = false } = {}) {
   await insert('insights', {
     brand_id: DEMO_BRAND_ID,
     kind: 'ventas',
-    data: {
-      hallazgos: [
+    data: [
         { titulo: 'El café en grano sostiene el negocio', dato: 'Blend Ombú y Colombia Huila suman el 45 % de lo facturado en 6 meses.', accion: 'Priorizá el contenido de café para preparar en casa: es lo que más vendés.' },
         { titulo: 'Las tazas no rotan', dato: 'Se vendieron 60 tazas en 6 meses y tenés 200 en stock.', accion: 'Sumalas al box de regalo en vez de venderlas sueltas.' },
         { titulo: 'Bajó el último mes', dato: 'Las ventas cayeron un 7 % respecto del mes anterior.', accion: 'Reforzá las publicaciones del box de regalo en las próximas semanas.' },
-      ],
-    },
+    ],
   })
 
   const base = Date.now() - 2 * 864e5
