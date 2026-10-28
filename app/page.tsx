@@ -153,7 +153,7 @@ export default function Landing() {
 
       <footer className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-8 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:px-6">
         <Logo />
-        <p>Nació en la hackathon Shippear de 2026. Hecho en Argentina.</p>
+        <p>Creado por Pedro Vidoret, Faustino Colaluce y Valentín Coronel.</p>
       </footer>
     </div>
   )
