@@ -2,6 +2,7 @@ import { anthropic } from '@ai-sdk/anthropic'
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { gateway } from 'ai'
 import type { LanguageModelV4, LanguageModelV4CallOptions } from '@ai-sdk/provider'
+import { recorded } from '@/lib/ai-record'
 
 // Proveedor de IA según la clave cargada en Vercel:
 // 1) ANTHROPIC_API_KEY → Claude
@@ -216,14 +217,15 @@ function build(kind: 'main' | 'fast'): LanguageModelV4 {
   return gateway(kind === 'main' ? GATEWAY_MAIN : GATEWAY_FAST) as unknown as LanguageModelV4
 }
 
-export const MODEL_MAIN = build('main')
-export const MODEL_FAST = build('fast')
+// recorded(): en desarrollo con AI_RECORD=1 reutiliza respuestas ya guardadas (ver lib/ai-record.ts).
+export const MODEL_MAIN = recorded(build('main'), 'main')
+export const MODEL_FAST = recorded(build('fast'), 'fast')
 
 /** Modelo + herramienta de búsqueda web para el canal "Respuestas de IA" de Visibilidad. */
 export function searchModel(): { model: any; tools?: Record<string, any>; via: string } {
   if (AI_PROVIDER === 'anthropic') {
     return {
-      model: anthropic(CLAUDE_MAIN),
+      model: recorded(anthropic(CLAUDE_MAIN) as unknown as LanguageModelV4, 'search'),
       tools: { web_search: anthropic.tools.webSearch_20250305({ maxUses: 3 }) },
       via: `anthropic/${CLAUDE_MAIN}`,
     }
@@ -233,7 +235,7 @@ export function searchModel(): { model: any; tools?: Record<string, any>; via: s
     const id = [GEMINI_MAIN, GEMINI_FAST].find((m) => !isOff(`google/${m}`))
     if (id || !FALLBACK_ENABLED) {
       const m = id ?? GEMINI_MAIN
-      return { model: google(m), tools: { google_search: google.tools.googleSearch({}) }, via: `google/${m}` }
+      return { model: recorded(google(m) as unknown as LanguageModelV4, 'search'), tools: { google_search: google.tools.googleSearch({}) }, via: `google/${m}` }
     }
   }
   // Gateway (o los dos Gemini agotados): un modelo que ya busca en la web por sí solo.
@@ -242,7 +244,7 @@ export function searchModel(): { model: any; tools?: Record<string, any>; via: s
     const back = Math.min(...GEMINI_KEYS.map((k) => unavailable.get(k) ?? 0).filter((t) => t > Date.now()))
     throw new AiUnavailableError(Number.isFinite(back) ? back : null)
   }
-  return { model: gateway(id), via: id }
+  return { model: recorded(gateway(id) as unknown as LanguageModelV4, 'search'), via: id }
 }
 
 /** Avisar desde Visibilidad que el modelo de búsqueda usado se quedó sin cupo o sin acceso. */
