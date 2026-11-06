@@ -20,3 +20,6 @@ tsconfig.tsbuildinfo
 CLAUDE.md
 CLAUDE.local.md
 docs/
+
+# Respuestas de IA grabadas en desarrollo (AI_RECORD=1)
+.ai-cache/
